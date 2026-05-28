@@ -1379,53 +1379,91 @@ interface UsgsCursorState {
 
 ## Correctness Properties
 
-### Property 1: Webhook Signature Integrity
+_A property is a characteristic or behavior that should hold true across all valid executions of a system — essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees._
 
-For any event payload `p` and secret `s`, if an MCP server (Server 1 or Server 2) signs `p` with `s` producing signature `sig`, then the webhook receiver verifying `sig` against `p` with `s` must return `true`. No valid payload should fail verification, and no tampered payload should pass.
+### Property 1: Webhook Signature Round-Trip
 
-### Property 2: Event Delivery Guarantee
+_For any_ event payload and HMAC secret, signing the payload with the secret and then verifying the resulting signature against the same payload and secret SHALL return true. Conversely, _for any_ payload signed with secret A, verifying with a different secret B (where A ≠ B) SHALL return false.
 
-For any new earthquake detected by MCP Server 1, if at least one active webhook subscription exists whose filter params match the earthquake, the corresponding `earthquake.detected` event must be delivered to SQS within the retry window (3 attempts). Similarly, for any customer whose briefing schedule is due, the `briefing.trigger` event must be delivered. Events in SQS must eventually be processed by the agent Lambda or moved to the DLQ.
+**Validates: Requirements 3.1, 3.2, 14.5, 17.1**
 
-### Property 3: Session Consistency
+### Property 2: Replay Attack Rejection
 
-For any agent invocation processing event `e_n` for customer `C`, the session state restored from S3 must reflect the complete processing history of all previously processed events for customer `C` (events `e_1, ..., e_{n-1}` belonging to `C`). After processing an `earthquake.detected` event, the persisted session must include that earthquake in `accumulatedEarthquakes`. After processing a `briefing.trigger` event, the persisted session must have `accumulatedEarthquakes` cleared and `lastBriefingAt` updated.
+_For any_ webhook delivery with a timestamp more than 5 minutes from the current time, the Webhook Receiver SHALL reject the delivery regardless of signature validity.
 
-### Property 4: Idempotent Processing
+**Validates: Requirement 3.3**
 
-If the agent Lambda receives the same `eventId` twice (due to SQS at-least-once delivery), the second invocation must not produce duplicate side effects. For earthquake events, the same earthquake must not appear twice in a customer's `accumulatedEarthquakes`. For briefing triggers, a duplicate trigger must not generate a second empty report.
+### Property 3: Earthquake Deduplication (Cursor Integrity)
 
-### Property 5: Subscription Liveness
+_For any_ sequence of USGS poll cycles with overlapping earthquake IDs, MCP Server 1 SHALL emit each earthquake at most once per subscription. After each poll cycle, the cursor state SHALL contain all previously emitted earthquake IDs, and only earthquakes not in the cursor SHALL be emitted.
 
-For ALL active customers and for any active subscription on either MCP server with TTL `t`, the Subscription Manager must refresh it before `t` expires. Formally: if refresh interval is `r` and TTL is `t`, then `r < t` must hold, ensuring at least one refresh attempt occurs before expiry. This applies independently to each customer's subscriptions on both Server 1 and Server 2.
+**Validates: Requirements 1.1, 1.4, 1.6**
 
-### Property 6: Earthquake Deduplication (Cursor Integrity)
+### Property 4: Per-Customer Earthquake Filtering
 
-For any USGS poll cycle, MCP Server 1 must only emit events for earthquakes not seen in previous polls. The cursor state (set of previously seen earthquake IDs) must be updated atomically after successful event emission. No earthquake should be emitted more than once per subscription.
+_For any_ earthquake `q` and subscription `s` with filter parameters, MCP Server 1 SHALL deliver `q` to `s` if and only if: `q.magnitude >= s.filterParams.minMagnitude` AND (if `s.filterParams.region` is set, `q` is within that region) AND (if `s.filterParams.maxDepthKm` is set, `q.coordinates.depth <= s.filterParams.maxDepthKm`). When no filter parameters are set, all earthquakes SHALL be delivered.
 
-### Property 7: Briefing Completeness
+**Validates: Requirements 1.2, 1.5, 12.1, 12.2, 12.3, 12.4**
 
-When a `briefing.trigger` event is processed for customer `C`, the generated report must include ALL earthquakes accumulated in customer `C`'s session since the last briefing (or since system start if no previous briefing). No accumulated earthquake may be omitted from the report, and no earthquake from a previous reporting period may be included.
+### Property 5: Session Accumulation Consistency
 
-### Property 8: Zero Idle Compute
+_For any_ sequence of `earthquake.detected` events processed for customer `C`, the customer's session `accumulatedEarthquakes` SHALL contain exactly those earthquakes in chronological order. After processing a `briefing.trigger` event, the session's `accumulatedEarthquakes` SHALL be empty and `lastBriefingAt` SHALL be updated.
 
-When no events are being processed, no Lambda functions are running and no compute resources are allocated. The system's steady-state cost is limited to storage (S3, DynamoDB) and the EventBridge schedule rules. This holds regardless of the number of registered customers.
+**Validates: Requirements 4.4, 4.6**
 
-### Property 9: Multi-Server Event Ordering
+### Property 6: Idempotent Event Processing
 
-Events from different MCP servers are processed independently (no cross-server ordering guarantee). However, within a single server's event stream for a given customer, events must be processed in cursor order. Specifically, earthquake events from Server 1 must be accumulated in chronological order within each customer's session.
+_For any_ event processed twice for the same customer (same `eventId`), the session state after the second processing SHALL be identical to the state after the first processing. No duplicate earthquakes SHALL appear in `accumulatedEarthquakes`, and no duplicate briefing reports SHALL be generated.
 
-### Property 10: Customer Isolation
+**Validates: Requirements 7.1, 7.2, 7.3**
 
-Events for customer A must never be processed in customer B's session. Formally: for any event `e` with subscription mapping to customer `C_a`, the session modified by processing `e` must be `sessions/{C_a}/session.json` and no other customer's session may be read or written during that invocation. Cross-customer data leakage is a critical correctness violation.
+### Property 7: Customer Isolation
 
-### Property 11: Session Write Serialization
+_For any_ event `e` with subscription mapping to customer `C_a`, the only session file read or written during processing SHALL be `sessions/{C_a}/session.json`. No other customer's session SHALL be accessed, and no earthquakes from customer `C_a`'s session SHALL appear in any other customer's briefing report.
 
-For any customer `C`, at most one Lambda invocation may hold the distributed lock for `C` at any given time. All session reads and writes for `C` occur within the lock's critical section (between lock acquisition and release). Formally: if invocation `I_1` acquires the lock for `C` at time `t_1` and releases at `t_2`, no other invocation `I_2` can acquire the lock for `C` during `[t_1, t_2]`. This ensures that concurrent events for the same customer are serialized, preventing lost updates to session state.
+**Validates: Requirements 5.1, 5.2**
 
-### Property 12: Per-Customer Filtering
+### Property 8: Session Write Serialization (Mutual Exclusion)
 
-MCP Server 1 must only deliver earthquakes matching a customer's subscription filter params. Formally: for any earthquake `q` and subscription `s` belonging to customer `C`, the server delivers `q` to `s` if and only if: `q.magnitude >= s.filterParams.minMagnitude` AND (if `s.filterParams.region` is set, `q` is within that region) AND (if `s.filterParams.maxDepthKm` is set, `q.coordinates.depth <= s.filterParams.maxDepthKm`).
+_For any_ customer `C`, at most one Lambda invocation SHALL hold the distributed lock at any given time. If invocation `I_1` holds the lock for `C` during interval `[t_1, t_2]`, no other invocation SHALL acquire the lock for `C` during that interval. Locks with expired TTL SHALL be acquirable by new owners, and only the lock owner SHALL be able to release the lock.
+
+**Validates: Requirements 6.1, 6.2, 6.4, 6.5**
+
+### Property 9: Briefing Report Completeness and Integrity
+
+_For any_ briefing generated for customer `C`, the report's `rawData` SHALL contain ALL earthquakes accumulated in `C`'s session since the last briefing. The report's `totalEarthquakes` SHALL equal `rawData.length`. The report's `periodStart` SHALL be before `periodEnd`. All entries in `notableQuakes` SHALL reference earthquakes present in `rawData`.
+
+**Validates: Requirements 11.1, 11.3, 11.5, 11.6**
+
+### Property 10: Subscription Expiry Detection and Refresh
+
+_For any_ set of active subscriptions with various expiry times, the Subscription Manager SHALL identify and refresh all subscriptions expiring within the threshold period. _For any_ active customer with missing subscriptions, the Subscription Manager SHALL detect and re-create them.
+
+**Validates: Requirements 8.2, 8.5, 15.3**
+
+### Property 11: Cognito Authorization Enforcement
+
+_For any_ Cognito-authorized request where the JWT `sub` claim does not match the `customerId` in the URL path, the Data API SHALL return HTTP 403. _For any_ request where they match, the Data API SHALL allow access.
+
+**Validates: Requirements 5.3, 9.2**
+
+### Property 12: Input Validation Correctness
+
+_For any_ customer configuration input, the Data API SHALL accept the input if and only if: `customerId` is valid UUID v4, `minMagnitude` is in [0, 10], `region` is one of the allowed values or undefined, `briefingPrompt` is non-empty and ≤ 2000 characters, and `briefingSchedule` is a valid cron expression. Invalid inputs SHALL receive HTTP 400.
+
+**Validates: Requirements 16.1, 16.2, 16.3, 16.4, 16.5, 16.6**
+
+### Property 13: Cron Schedule Evaluation
+
+_For any_ timestamp and cron expression, MCP Server 2 SHALL fire a briefing trigger if and only if the cron expression matches the current time. Non-matching schedules SHALL not produce triggers.
+
+**Validates: Requirements 2.1, 2.3**
+
+### Property 14: Subscription Creation Response Validity
+
+_For any_ valid `events/subscribe` request, the MCP server SHALL return a response containing a valid `subscriptionId` (UUID) and an `expiresAt` timestamp in the future.
+
+**Validates: Requirement 14.3**
 
 ## Error Handling
 
