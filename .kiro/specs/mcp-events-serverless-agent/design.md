@@ -8,7 +8,7 @@ The design supports **multiple customers**, each with their own independent agen
 
 The design uses two MCP servers feeding per-customer agent sessions: (1) a USGS Earthquake Feed Server that polls the USGS earthquake API and emits earthquakes as MCP events, filtered per subscription based on customer parameters, and (2) a Scheduler Server that emits time-based trigger events per customer on their configured schedule. This demonstrates that a single MCP Client/Host can manage subscriptions for multiple customers across multiple MCP servers simultaneously.
 
-The agent follows an "accumulate then synthesize" pattern per customer. When earthquake events arrive, the agent wakes, identifies the customer from the subscription ID, restores that customer's session directly from S3 using the Strands SDK `SessionManager` with `S3Storage`, adds the earthquake to the customer's accumulated context, persists session directly to S3, and exits. When a customer's briefing trigger arrives, the agent wakes, loads the customer's briefing prompt via the Data API, synthesizes accumulated earthquakes into a tailored report, writes the report via the Data API, clears accumulated data, persists session directly to S3, and exits. The Serverless Agent owns its session bucket directly — only the agent ever reads/writes session state, so there is no reason to route it through an API. A shared Data API (API Gateway + Lambda) encapsulates persistence operations for customer config and reports, and is called by both the Serverless Agent (via IAM SigV4 auth) and the webapp frontend (via Cognito JWT). A separate Subscription Manager Lambda iterates over all active customers and refreshes their webhook subscriptions on both servers.
+The agent uses the **conversation history as the accumulator**. When earthquake events arrive, the agent wakes, identifies the customer from the subscription ID, restores that customer's session directly from S3 using the Strands SDK `SessionManager` with `S3Storage`, injects the earthquake data as a user message, invokes the LLM which responds with analysis, persists the updated conversation history to S3, and exits. When a customer's briefing trigger arrives, the agent wakes, loads the customer's session (which contains all earthquake observations as conversation history), invokes the LLM with a briefing trigger message, the LLM synthesizes everything in its context and calls the `save_report` tool to persist the report via the Data API, and exits. The Serverless Agent owns its session bucket directly — only the agent ever reads/writes session state, so there is no reason to route it through an API. A shared Data API (API Gateway + Lambda) encapsulates persistence operations for customer config and reports, and is called by both the Serverless Agent (via IAM SigV4 auth) and the webapp frontend (via Cognito JWT). A separate Subscription Manager Lambda iterates over all active customers and refreshes their webhook subscriptions on both servers.
 
 ## Architecture
 
@@ -233,11 +233,12 @@ sequenceDiagram
     participant APIG as API Gateway (Webhook) [MCP CLIENT/HOST side]
     participant SQS as SQS Queue [MCP CLIENT/HOST side]
     participant Agent as Serverless Agent [MCP CLIENT/HOST]
+    participant LLM as Bedrock LLM
     participant DataAPI as Data API [MCP CLIENT/HOST]
     participant S3S as S3 Sessions
 
     Note over MCP1: MCP SERVER — polls USGS, filters per<br/>subscription params, delivers to subscribers
-    Note over APIG,Agent: MCP CLIENT/HOST — routes events to<br/>correct customer session
+    Note over APIG,Agent: MCP CLIENT/HOST — routes events to<br/>correct customer session, invokes LLM on every event
 
     MCP1->>USGS: GET /earthquakes/feed/v1.0/summary/2.5_day.geojson
     USGS-->>MCP1: GeoJSON with earthquakes
@@ -266,9 +267,12 @@ sequenceDiagram
         Agent->>DataAPI: GET /customers/{customerId}/config (IAM SigV4)
         DataAPI-->>Agent: CustomerConfig (briefingPrompt, etc.)
         Agent->>S3S: GetObject sessions/{customerId}/session.json<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
-        S3S-->>Agent: Customer's session with accumulated earthquakes
-        Agent->>Agent: Add earthquake to customer's accumulated context
-        Agent->>S3S: PutObject sessions/{customerId}/session.json<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
+        S3S-->>Agent: Customer's session (conversation history)
+        Agent->>Agent: Inject earthquake data as user message
+        Agent->>LLM: Invoke with conversation history + earthquake message
+        LLM-->>Agent: Analysis response (significance, patterns, etc.)
+        Agent->>Agent: Append user message + assistant response to conversation
+        Agent->>S3S: PutObject sessions/{customerId}/session.json<br/>(updated conversation history)<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
         Agent->>DDB: Release lock on customerId
         Agent-->>SQS: Success (message deleted)
     else Lock acquisition timeout
@@ -286,12 +290,13 @@ sequenceDiagram
     participant APIG as API Gateway (Webhook) [MCP CLIENT/HOST side]
     participant SQS as SQS Queue [MCP CLIENT/HOST side]
     participant Agent as Serverless Agent [MCP CLIENT/HOST]
+    participant LLM as Bedrock LLM
     participant DataAPI as Data API [MCP CLIENT/HOST]
     participant S3S as S3 Sessions
     participant S3R as S3 Reports
 
     Note over MCP2: MCP SERVER — checks which customers<br/>are due for briefing, fires per-customer triggers
-    Note over Agent: MCP CLIENT/HOST — uses customer's<br/>briefingPrompt for tailored report
+    Note over Agent: MCP CLIENT/HOST — LLM synthesizes all<br/>earthquakes in conversation history into a report
 
     EB->>MCP2: Scheduled trigger (every 1 min)
     MCP2->>DDB: Look up active subscriptions with schedules
@@ -307,15 +312,14 @@ sequenceDiagram
     Agent->>DataAPI: GET /customers/{customerId}/config (IAM SigV4)
     DataAPI-->>Agent: CustomerConfig (briefingPrompt)
     Agent->>S3S: GetObject sessions/{customerId}/session.json<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
-    S3S-->>Agent: Customer's session with accumulated earthquakes
-    Agent->>Agent: Synthesize briefing with LLM<br/>using customer's briefingPrompt
-    Agent->>DataAPI: GET /customers/{customerId}/reports?latest=true (IAM SigV4)
-    DataAPI->>S3R: Get previous briefing
-    S3R-->>DataAPI: Previous briefing
-    DataAPI-->>Agent: Previous briefing for comparison
-    Agent->>DataAPI: POST /customers/{customerId}/reports (IAM SigV4)
+    S3S-->>Agent: Customer's session (conversation history with all earthquake analyses)
+    Agent->>Agent: Inject trigger message:<br/>"Generate your periodic briefing report now."
+    Agent->>LLM: Invoke with full conversation history + trigger message
+    LLM-->>Agent: Synthesized report + save_report tool call
+    Agent->>DataAPI: POST /customers/{customerId}/reports (IAM SigV4)<br/>(save_report tool callback)
     DataAPI->>S3R: PutObject report for customerId
-    Agent->>S3S: PutObject sessions/{customerId}/session.json<br/>(cleared accumulation, updated metadata)<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
+    DataAPI-->>Agent: { reportId }
+    Agent->>S3S: PutObject sessions/{customerId}/session.json<br/>(conversation cleared or retained, updated metadata)<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
     Agent->>DDB: Release lock on customerId
     Agent-->>SQS: Success (message deleted)
 ```
@@ -560,7 +564,7 @@ interface McpSubscriptionHeaders {
 
 ### Component 4: Serverless Agent (Strands Agent) — `MCP CLIENT/HOST`
 
-**Purpose**: Runs the Strands Agent that processes MCP events from both servers. Triggered by SQS, looks up the customer from the subscription ID, restores the customer's session directly from S3 using the Strands SDK `SessionManager` with `S3Storage`, calls the Data API to load customer config, handles the event based on type (accumulate earthquake or generate briefing using the customer's prompt), persists updated session state directly to S3, and exits.
+**Purpose**: Runs the Strands Agent that processes MCP events from both servers. Triggered by SQS, looks up the customer from the subscription ID, restores the customer's session directly from S3 using the Strands SDK `SessionManager` with `S3Storage`, calls the LLM on every event, and persists the updated conversation history. The **conversation history is the accumulator** — there is no separate data structure for accumulated earthquakes. When earthquake events arrive, the LLM analyzes them in context of prior conversation. When briefing triggers arrive, the LLM synthesizes everything in its conversation history into a report and calls the `save_report` tool.
 
 **MCP Protocol Role**: This is the **MCP Client/Host**. It runs the Strands Agent which subscribes to events from both MCP Servers and processes them. The Serverless Agent, Webhook Receiver, and Subscription Manager together form the complete MCP Client/Host.
 
@@ -569,6 +573,8 @@ interface McpSubscriptionHeaders {
 ```typescript
 import { Agent } from "@strands-agents/sdk";
 import { SessionManager, S3Storage } from "@strands-agents/sdk";
+import { tool } from "@strands-agents/sdk";
+import { z } from "zod";
 
 // Lambda handler
 interface AgentHandler {
@@ -577,11 +583,41 @@ interface AgentHandler {
 
 // Agent configuration — created per-customer
 interface AgentConfig {
-  systemPrompt: string; // Customer's briefingPrompt
-  tools: Tool[];
+  systemPrompt: string; // Customer's briefingPrompt — guides both earthquake analysis and report generation
+  tools: [typeof saveReport]; // Single tool: save_report
   sessionManager: SessionManager; // Configured with S3Storage, sessionId = customerId
   model: BedrockModel;
 }
+
+// The agent's single tool
+const saveReport = tool({
+  name: "save_report",
+  description:
+    "Save the generated earthquake briefing report. Call this when generating a periodic briefing.",
+  inputSchema: z.object({
+    summary: z.string().describe("High-level summary of seismic activity"),
+    notableQuakes: z
+      .array(
+        z.object({
+          earthquakeId: z.string(),
+          magnitude: z.number(),
+          place: z.string(),
+          reason: z.string().describe("Why this quake is notable"),
+        }),
+      )
+      .describe("Significant earthquakes to highlight"),
+    geographicPatterns: z
+      .string()
+      .describe("Analysis of geographic clustering"),
+    comparisonToPrevious: z
+      .string()
+      .describe("How this period compares to the last"),
+  }),
+  callback: async (input) => {
+    // Writes report to S3 via Data API
+    // Returns confirmation with report ID
+  },
+});
 
 // Session management — direct S3 access via Strands SDK
 interface AgentSessionConfig {
@@ -617,20 +653,14 @@ interface CustomerSessionLockManager {
 interface DataApiClient {
   getSubscription: (subscriptionId: string) => Promise<WebhookSubscription>;
   getConfig: (customerId: string) => Promise<CustomerConfig>;
-  getReports: (customerId: string) => Promise<ReportSummary[]>;
-  getReport: (customerId: string, reportId: string) => Promise<BriefingReport>;
-  writeReport: (
-    customerId: string,
-    report: BriefingReport,
-  ) => Promise<{ reportId: string }>;
-}
-
-// Agent tools
-interface AgentTools {
-  write_report: (report: BriefingReport) => { key: string; url: string };
-  get_previous_briefing: (customerId: string) => BriefingReport | null;
 }
 ```
+
+**Processing Model — Conversation History as Accumulator**:
+
+1. **On earthquake event**: The earthquake data is injected as a user message into the agent's conversation. The LLM is invoked and responds with a brief summary/analysis of the earthquake (significance, patterns relative to previous quakes in the conversation, etc.). Both the user message and assistant response are persisted in the session's conversation history via the Strands SDK `SessionManager`.
+
+2. **On briefing trigger**: The agent already has all earthquake observations in its conversation history. The LLM is invoked with a message like "Generate your periodic briefing report now." The agent synthesizes everything in its context into a report and calls the `save_report` tool to persist it.
 
 **Responsibilities**:
 
@@ -641,10 +671,9 @@ interface AgentTools {
 - Call Data API (`GET /customers/{customerId}/config`) to load CustomerConfig (IAM SigV4 auth)
 - Determine event type: `earthquake.detected` or `briefing.trigger`
 - **Restore customer's session directly from S3** using Strands SDK `SessionManager` with `S3Storage` (sessionId = customerId, path: `sessions/{customerId}/session.json`)
-- For earthquake events: add earthquake to customer's accumulated context in session
-- For briefing triggers: synthesize accumulated earthquakes using customer's `briefingPrompt`
-- Call Data API (`POST /customers/{customerId}/reports`) to write briefing report (IAM SigV4 auth)
-- Call Data API (`GET /customers/{customerId}/reports?latest=true`) to read previous briefing for comparison
+- For earthquake events: inject earthquake data as a user message → invoke LLM → agent responds with analysis → conversation history grows
+- For briefing triggers: inject trigger message ("Generate your periodic briefing report now.") → invoke LLM → agent calls `save_report` tool → report persisted via Data API → conversation history cleared or retained based on strategy
+- The agent's system prompt includes the customer's `briefingPrompt` which guides both earthquake analysis and report generation
 - **Persist updated session state directly to S3** using Strands SDK `SessionManager` with `S3Storage`
 - **Release distributed lock on customer ID** after session state is persisted (direct DynamoDB access)
 - Handle partial batch failures (SQS batch response)
@@ -1235,47 +1264,40 @@ interface WebhookSubscription {
  * Persisted to S3 by the Strands SDK SessionManager.
  * Each customer has their own session at sessions/{customerId}/session.json.
  * The SDK handles serialization; this shows the logical structure.
+ *
+ * KEY DESIGN DECISION: The conversation history IS the accumulated data.
+ * There is no separate accumulatedEarthquakes array. Each earthquake event
+ * becomes a user message (earthquake data) + assistant message (LLM analysis).
+ * When a briefing is triggered, the LLM has full context of all prior
+ * earthquakes in the conversation and synthesizes them into a report.
  */
 interface AgentSessionState {
   sessionId: string; // = customerId (ensures per-customer isolation)
   customerId: string; // Redundant but explicit for clarity
-  messages: ConversationMessage[]; // Full conversation history for this customer
-  accumulatedEarthquakes: AccumulatedEarthquake[]; // Earthquakes pending briefing
+  messages: ConversationMessage[]; // Full conversation history — this IS the accumulated earthquake data
   metadata: {
     lastEventId: string; // Last processed event cursor
     lastActiveAt: string; // ISO 8601
     invocationCount: number;
     lastBriefingAt: string | null; // ISO 8601 — when last briefing was generated
-    earthquakesSinceLastBriefing: number;
     customerDisplayName: string; // Cached from config
   };
 }
-```
-
-interface AccumulatedEarthquake {
-earthquakeId: string;
-magnitude: number;
-place: string;
-coordinates: { longitude: number; latitude: number; depth: number };
-time: string;
-alert: string | null;
-receivedAt: string; // When the agent processed this event
-}
 
 interface ConversationMessage {
-role: "user" | "assistant" | "tool";
-content: string | ToolUseContent[];
-timestamp: string;
+  role: "user" | "assistant" | "tool";
+  content: string | ToolUseContent[];
+  timestamp: string;
 }
-
-````
+```
 
 **Validation Rules**:
 
 - `sessionId` equals `customerId` (deterministic, one session per customer)
-- Session size should be bounded (trim oldest messages if exceeding 100KB)
+- Session size should be bounded (trim oldest messages if exceeding context window limits)
 - `lastEventId` used for idempotency checks
-- `accumulatedEarthquakes` cleared after briefing generation
+- The Strands SDK `SessionManager` handles serialization — the conversation history IS the accumulated data
+- After briefing generation, conversation may be cleared or retained based on context window strategy
 - Sessions are completely isolated — no cross-customer data leakage
 
 ---
@@ -1286,6 +1308,10 @@ timestamp: string;
 /**
  * The output artifact written to S3 when a briefing is generated.
  * Stored at reports/{customerId}/{reportId}.json.
+ *
+ * Note: There is no rawData field. The raw earthquake data lives in the
+ * agent's conversation history, not in the report. The report is the
+ * LLM's synthesized output from the save_report tool call.
  */
 interface BriefingReport {
   reportId: string; // UUID v4
@@ -1300,7 +1326,6 @@ interface BriefingReport {
   notableQuakes: NotableQuake[]; // Significant earthquakes highlighted
   geographicPatterns: string; // Analysis of geographic clustering
   comparisonToPrevious: string; // How this period compares to the last
-  rawData: AccumulatedEarthquake[]; // All earthquakes in this period
 }
 
 interface NotableQuake {
@@ -1309,13 +1334,12 @@ interface NotableQuake {
   place: string;
   reason: string; // Why it's notable (largest, deepest, near population, etc.)
 }
-````
+```
 
 **Validation Rules**:
 
 - `periodStart` must be before `periodEnd`
-- `totalEarthquakes` must equal `rawData.length`
-- `notableQuakes` entries must reference earthquakes in `rawData`
+- `notableQuakes` entries should reference earthquakes the agent observed in conversation
 - `customerId` must match the S3 path prefix
 
 ---
@@ -1405,15 +1429,15 @@ _For any_ earthquake `q` and subscription `s` with filter parameters, MCP Server
 
 **Validates: Requirements 1.2, 1.5, 12.1, 12.2, 12.3, 12.4**
 
-### Property 5: Session Accumulation Consistency
+### Property 5: Conversation History Integrity
 
-_For any_ sequence of `earthquake.detected` events processed for customer `C`, the customer's session `accumulatedEarthquakes` SHALL contain exactly those earthquakes in chronological order. After processing a `briefing.trigger` event, the session's `accumulatedEarthquakes` SHALL be empty and `lastBriefingAt` SHALL be updated.
+_For any_ sequence of `earthquake.detected` events processed for customer `C`, the customer's session conversation history SHALL contain a user message (earthquake data) and assistant message (LLM analysis) for each processed event, in chronological order. The conversation history SHALL be the sole accumulator of earthquake observations. After processing a `briefing.trigger` event, `lastBriefingAt` SHALL be updated, and the conversation may be cleared based on context window management strategy.
 
 **Validates: Requirements 4.4, 4.6**
 
 ### Property 6: Idempotent Event Processing
 
-_For any_ event processed twice for the same customer (same `eventId`), the session state after the second processing SHALL be identical to the state after the first processing. No duplicate earthquakes SHALL appear in `accumulatedEarthquakes`, and no duplicate briefing reports SHALL be generated.
+_For any_ event processed twice for the same customer (same `eventId`), the session state after the second processing SHALL be identical to the state after the first processing. No duplicate earthquake messages SHALL appear in the conversation history, and no duplicate briefing reports SHALL be generated.
 
 **Validates: Requirements 7.1, 7.2, 7.3**
 
@@ -1431,7 +1455,7 @@ _For any_ customer `C`, at most one Lambda invocation SHALL hold the distributed
 
 ### Property 9: Briefing Report Completeness and Integrity
 
-_For any_ briefing generated for customer `C`, the report's `rawData` SHALL contain ALL earthquakes accumulated in `C`'s session since the last briefing. The report's `totalEarthquakes` SHALL equal `rawData.length`. The report's `periodStart` SHALL be before `periodEnd`. All entries in `notableQuakes` SHALL reference earthquakes present in `rawData`.
+_For any_ briefing generated for customer `C`, the agent SHALL have access to all earthquake observations in the conversation history when generating the report. The report's `periodStart` SHALL be before `periodEnd`. The LLM SHALL have the full conversation context (all prior earthquake user messages and analysis responses) available when synthesizing the briefing via the `save_report` tool.
 
 **Validates: Requirements 11.1, 11.3, 11.5, 11.6**
 
@@ -1495,7 +1519,7 @@ _For any_ valid `events/subscribe` request, the MCP server SHALL return a respon
 
 **Condition**: S3 session object for a specific customer is corrupted or incompatible after a code update
 **Response**: Agent catches deserialization error, logs warning with `customerId`
-**Recovery**: Agent starts with a fresh session for that customer (empty conversation history, empty accumulated earthquakes). Previous session archived to a `-corrupted` suffix key for debugging. Accumulated earthquakes from the corrupted session are lost (acceptable — next poll cycle will continue from USGS cursor). Other customers' sessions are unaffected.
+**Recovery**: Agent starts with a fresh session for that customer (empty conversation history). Previous session archived to a `-corrupted` suffix key for debugging. Earthquake observations from the corrupted session's conversation history are lost (acceptable — next poll cycle will continue from USGS cursor). Other customers' sessions are unaffected.
 
 ### Error Scenario 6: USGS API Unavailability
 
@@ -1505,9 +1529,9 @@ _For any_ valid `events/subscribe` request, the MCP server SHALL return a respon
 
 ### Error Scenario 7: Report Write Failure
 
-**Condition**: Agent generates a briefing for a customer but fails to write it to S3
-**Response**: Agent retries the S3 PutObject once. If still failing, throws error (triggers SQS retry).
-**Recovery**: On retry, agent re-generates the briefing from accumulated data (still in customer's session). If S3 is persistently unavailable, message moves to DLQ. Accumulated earthquakes remain in customer's session until successfully briefed.
+**Condition**: Agent's `save_report` tool callback fails to write the report to S3 via Data API
+**Response**: Agent retries the Data API call once. If still failing, throws error (triggers SQS retry).
+**Recovery**: On retry, agent re-invokes the LLM with the same conversation history (still in customer's session). If the Data API is persistently unavailable, message moves to DLQ. Conversation history remains in customer's session until successfully briefed.
 
 ### Error Scenario 8: Customer Config Not Found
 
@@ -1537,7 +1561,8 @@ _For any_ valid `events/subscribe` request, the MCP server SHALL return a respon
 - Test per-subscription earthquake filtering (minMagnitude, region, maxDepthKm)
 - Test event type routing (earthquake vs. briefing trigger)
 - Test subscription-to-customer resolution logic
-- Test session accumulation and clearing logic per customer
+- Test conversation history message injection (earthquake data as user message)
+- Test save_report tool schema validation and callback
 - Test briefing report generation structure with customer-specific prompts
 - Test customer config validation (schema, cron parsing)
 - Mock AWS SDK calls (S3, SQS, DynamoDB) using `aws-sdk-client-mock`
@@ -1548,8 +1573,8 @@ _For any_ valid `events/subscribe` request, the MCP server SHALL return a respon
 - Register multiple test customers with different filter params
 - POST simulated earthquake events to Server 1's ingest endpoint
 - Verify earthquakes are filtered correctly per customer subscription
-- Verify earthquake events arrive at agent Lambda and accumulate in correct customer's session
-- Verify customer isolation: events for customer A don't appear in customer B's session
+- Verify earthquake events arrive at agent Lambda and are processed with LLM invocation in correct customer's session
+- Verify customer isolation: events for customer A don't appear in customer B's conversation history
 - Trigger briefing manually for each customer and verify tailored reports appear in S3
 - Test subscription refresh cycle end-to-end across both servers for all customers
 - Verify DLQ behavior on simulated agent failures
@@ -1565,8 +1590,8 @@ _For any_ valid `events/subscribe` request, the MCP server SHALL return a respon
 - Earthquake deduplication: for any sequence of USGS poll results with overlapping IDs, each earthquake is emitted exactly once per subscription
 - Per-customer filtering: for any earthquake and customer filter params, delivery decision matches filter criteria
 - Customer isolation: for any sequence of events with mixed customer IDs, each customer's session contains only their events
-- Session accumulation: for any sequence of earthquake events for a customer, session contains exactly those earthquakes in order
-- Briefing completeness: after trigger for customer C, report contains all of C's accumulated earthquakes and session is cleared
+- Conversation history integrity: for any sequence of earthquake events for a customer, conversation contains a user message and assistant response for each event in order
+- Briefing context completeness: when a briefing trigger fires for customer C, the LLM has access to all prior earthquake messages in the conversation history
 - Idempotency: processing the same eventId twice for the same customer produces identical session state
 - Subscription TTL: refreshed subscriptions always have `expiresAt > now()`
 - Cursor monotonicity: cursor values are strictly increasing across emitted events
@@ -1578,8 +1603,10 @@ _For any_ valid `events/subscribe` request, the MCP server SHALL return a respon
 - **USGS polling efficiency**: The 2.5_day.geojson feed is ~50KB. Polling every 5 minutes is well within USGS rate limits and provides near-real-time detection (typical 10-30 new earthquakes per day).
 - **Per-subscription filtering**: Filtering happens in MCP Server 1 after fetching the feed. With N customers, each new earthquake is evaluated against N subscription filter sets. This is O(N × E) where E is new earthquakes per poll — negligible for expected customer counts (< 100 customers, < 10 new earthquakes per poll).
 - **Concurrent customer processing**: Multiple SQS messages (for different customers) can be processed concurrently by separate Lambda invocations. SQS FIFO is NOT required since customer sessions are independent. Standard SQS provides natural parallelism.
-- **SQS batching**: Batch size of 1 ensures each event gets full Lambda execution time. Earthquake events are lightweight (accumulate only); briefing triggers need more time for LLM synthesis.
-- **Session size management**: Each customer's accumulated earthquakes are bounded by their briefing interval. With ~30 earthquakes/day globally and per-customer filtering reducing this further, sessions stay well under 100KB. Conversation history trimmed if needed.
+- **SQS batching**: Batch size of 1 ensures each event gets full Lambda execution time. Both earthquake events and briefing triggers invoke the LLM, but briefing triggers are more compute-intensive (full conversation synthesis + tool call).
+- **LLM invocation cost**: Each earthquake event triggers a Bedrock LLM call. With 10-30 earthquakes/day globally and per-customer filtering reducing this further, each customer sees roughly 5-15 LLM calls/day for earthquake analysis. This is manageable cost-wise with Bedrock on-demand pricing. Briefing triggers add one additional LLM call per customer per briefing cycle.
+- **Context window management**: With daily briefings, conversation history stays well within LLM context limits. A typical day accumulates 5-15 earthquake user/assistant message pairs (roughly 500-1500 tokens each) plus the system prompt. After briefing generation, conversation can be cleared to reset context. For customers with less frequent briefings, context window limits may require trimming oldest messages.
+- **Session size management**: Each customer's conversation history is bounded by their briefing interval. With per-customer filtering and daily briefings, sessions stay well under typical context window limits. The Strands SDK SessionManager handles serialization efficiently.
 - **Webhook fan-out**: For N customers, each new earthquake may generate up to N webhook deliveries (one per matching subscription). With < 100 customers, this is well within API Gateway and Lambda concurrency limits.
 - **Scheduler efficiency**: MCP Server 2 runs every 1 minute and checks all customer schedules. With < 100 customers, cron evaluation is sub-millisecond. Only fires webhooks for customers whose schedule matches.
 - **Webhook timeout**: API Gateway has 29s timeout. Webhook receiver validates signature and enqueues to SQS in <100ms, well within limits.
