@@ -25,14 +25,10 @@ export type DnsStackProps = cdk.StackProps & SharedProps;
  * `Fn.importValue`. No construct references are passed across stacks.
  */
 export class DnsStack extends cdk.Stack {
-  /** Fully qualified subdomain, e.g. `earthquake-agent.liguori.people.aws.dev`. */
-  public readonly domainName: string;
-
   constructor(scope: Construct, id: string, props: DnsStackProps) {
     super(scope, id, props);
 
     const domainName = resolveDomainName(props);
-    this.domainName = domainName;
 
     // The parent zone already exists in this account. fromLookup performs a
     // synth-time lookup, so the stack must be environment-specific (account +
