@@ -24,7 +24,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6_
     - _Validation: `npx tsc --noEmit` compiles without errors; import the types in a test file and verify they're accessible_
 
-  - [~] 1.3 Write property test for input validation (Property 12)
+  - [x] 1.3 Write property test for input validation (Property 12)
     - **Property 12: Input Validation Correctness**
     - Generate arbitrary CustomerConfig inputs with fast-check and verify that valid inputs are accepted and invalid inputs are rejected with HTTP 400 semantics
     - Test UUID v4 format validation, minMagnitude in [0,10], region enum, briefingPrompt length, cron expression validity
