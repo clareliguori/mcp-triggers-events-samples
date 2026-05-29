@@ -16,7 +16,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 13.1_
     - _Validation: `npm install` succeeds without errors; `npx tsc --noEmit` compiles without errors across all packages_
 
-  - [~] 1.2 Define shared TypeScript interfaces and data models
+  - [x] 1.2 Define shared TypeScript interfaces and data models
     - Create `packages/shared/src/models.ts` with all data model interfaces: `CustomerConfig`, `McpEventPayload`, `EarthquakeDetectedData`, `BriefingTriggerData`, `CustomerSessionLock`, `WebhookSubscription`, `AgentSessionState`, `BriefingReport`, `NotableQuake`, `SubscribeParams`, `SubscribeResult`, `UsgsCursorState`, `ReportSummary`
     - Create `packages/shared/src/validation.ts` with zod schemas for all models (CustomerConfig input validation, event payload validation, subscription params validation)
     - Create `packages/shared/src/constants.ts` with shared constants (region list, magnitude bounds, cron validation regex, TTL defaults)
