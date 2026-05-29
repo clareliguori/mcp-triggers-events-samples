@@ -845,6 +845,8 @@ const agent = new AgentStack(app, "AgentStack", {
   ...shared,
   dataApiUrl: dataApi.url,
 });
+// DataApiStack gets read-only access to AgentStack's sessions bucket
+dataApi.grantSessionsRead(agent.sessionsBucketArn);
 const subscriptionMgr = new SubscriptionManagerStack(
   app,
   "SubscriptionManagerStack",
@@ -874,7 +876,7 @@ const webapp = new WebappStack(app, "WebappStack", {
 **Stack Responsibilities**:
 
 - **AuthStack**: Cognito User Pool, User Pool Client, hosted UI domain (`auth.earthquake-agent.<parentDomain>`)
-- **DataApiStack**: API Gateway + Lambda for Data API routes (config, subscriptions, reports), DynamoDB tables (Customer Config, Subscriptions), S3 reports bucket, dual auth (Cognito + IAM)
+- **DataApiStack**: API Gateway + Lambda for Data API routes (config, subscriptions, reports, session messages), DynamoDB tables (Customer Config, Subscriptions), S3 reports bucket, dual auth (Cognito + IAM), read-only `s3:GetObject` on AgentStack's sessions bucket (cross-stack import)
 - **UsgsServerStack**: API Gateway (IAM auth) + Lambda for MCP Server 1, DynamoDB (Cursor State, Subscriptions), EventBridge rule (poll every 5 min)
 - **SchedulerServerStack**: API Gateway (IAM auth) + Lambda for MCP Server 2, DynamoDB (Subscriptions), EventBridge rule (check every 1 min)
 - **WebhookReceiverStack**: API Gateway + Lambda for webhook validation, SQS queue + DLQ
@@ -891,6 +893,7 @@ Stacks export/import values via `CfnOutput` / `Fn.importValue`:
 - UsgsServerStack exports: API URL
 - SchedulerServerStack exports: API URL
 - WebhookReceiverStack exports: SQS queue ARN, webhook endpoint URL
+- AgentStack exports: Sessions bucket ARN (consumed by DataApiStack for read-only access)
 
 ---
 
@@ -918,6 +921,11 @@ interface WebappDataApiCalls {
   // Reports
   "GET /customers/:customerId/reports": () => { reports: ReportSummary[] };
   "GET /customers/:customerId/reports/:reportId": () => BriefingReport;
+
+  // Session messages (conversation history)
+  "GET /customers/:customerId/session/messages": () => {
+    messages: ConversationMessage[];
+  };
 
   // Manual trigger (separate route on same API Gateway)
   "POST /trigger-briefing/:customerId": () => {
@@ -962,6 +970,8 @@ interface ReportSummary {
   - Provide UI for subscription configuration (filter params, briefing prompt, schedule)
   - Display list of generated reports with ability to read full content
   - Provide "Trigger Briefing Now" button for manual triggers
+  - Display conversation history view showing agent interactions as a chat-style timeline (user messages as earthquake event cards, assistant messages as agent response bubbles, tool use as action cards, tool results as confirmation badges)
+  - Auto-refresh conversation history periodically (every 30 seconds) for real-time demo viewing
   - Minimal UI — demo quality, not production polish
   - Uses shadcn-svelte components (Button, Card, Table, Form, Input, Select) for polished look
   - Calls the shared Data API directly with Cognito JWT in Authorization header
@@ -1009,6 +1019,11 @@ interface DataApiRoutes {
   "POST /customers/:customerId/reports": (body: BriefingReport) => {
     reportId: string;
   };
+
+  // Session messages (read-only view of agent conversation history)
+  "GET /customers/:customerId/session/messages": () => {
+    messages: ConversationMessage[];
+  };
 }
 
 // Authorization context passed to the Lambda handler
@@ -1051,6 +1066,8 @@ interface CustomerConfigInput {
   - `GET /customers/:customerId/reports`: List objects in S3 at `reports/{customerId}/` prefix, return metadata. Supports `?latest=true` query param to return only the most recent report.
   - `GET /customers/:customerId/reports/:reportId`: Read specific report JSON from S3 at `reports/{customerId}/{reportId}.json`
   - `POST /customers/:customerId/reports`: Write a new report to S3 at `reports/{customerId}/{reportId}.json` (used by Serverless Agent)
+- **Session messages (read-only)**:
+  - `GET /customers/:customerId/session/messages`: Read the session snapshot from the sessions S3 bucket (read-only `s3:GetObject` access) and return the `messages` array. The Data API Lambda has read-only access to the sessions bucket — the agent still owns writes directly via Strands SDK. Same authorization rules apply (Cognito: customerId must match JWT sub; IAM: allow any customer).
 - **Input validation**: Validate all request bodies against schemas (zod). Reject malformed requests with 400.
 - **Error responses**: Return appropriate HTTP status codes (400 for validation errors, 403 for auth failures, 404 for not found, 500 for internal errors)
 
@@ -1433,6 +1450,8 @@ _For any_ earthquake `q` and subscription `s` with filter parameters, MCP Server
 
 _For any_ sequence of `earthquake.detected` events processed for customer `C`, the customer's session conversation history SHALL contain a user message (earthquake data) and assistant message (LLM analysis) for each processed event, in chronological order. The conversation history SHALL be the sole accumulator of earthquake observations. After processing a `briefing.trigger` event, `lastBriefingAt` SHALL be updated, and the conversation may be cleared based on context window management strategy.
 
+_Note: Conversation ordering is guaranteed by the Strands SDK SessionManager and does not require application-level testing._
+
 **Validates: Requirements 4.4, 4.6**
 
 ### Property 6: Idempotent Event Processing
@@ -1457,7 +1476,7 @@ _For any_ customer `C`, at most one Lambda invocation SHALL hold the distributed
 
 _For any_ briefing generated for customer `C`, the agent SHALL have access to all earthquake observations in the conversation history when generating the report. The report's `periodStart` SHALL be before `periodEnd`. The LLM SHALL have the full conversation context (all prior earthquake user messages and analysis responses) available when synthesizing the briefing via the `save_report` tool.
 
-**Validates: Requirements 11.1, 11.3, 11.5, 11.6**
+**Validates: Requirements 11.1, 11.3, 11.5**
 
 ### Property 10: Subscription Expiry Detection and Refresh
 

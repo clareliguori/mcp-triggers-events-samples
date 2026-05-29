@@ -2,19 +2,19 @@
 
 ## Introduction
 
-This document defines the requirements for the MCP Events Serverless Agent — an earthquake monitoring system that demonstrates the experimental MCP Events extension using webhook delivery mode. The system supports multiple customers, each with independent agent sessions, tailored subscription parameters, and custom briefing prompts. Two MCP servers (USGS Earthquake Feed and Message Scheduler) deliver events via webhooks to a serverless Strands Agent that accumulates earthquake data and generates tailored briefing reports per customer.
+This document defines the requirements for the MCP Events Serverless Agent — an earthquake monitoring system that demonstrates the experimental MCP Events extension using webhook delivery mode. The system supports multiple customers, each with independent agent sessions, tailored subscription parameters, and custom briefing prompts. Two MCP servers (USGS Earthquake Feed and Message Scheduler) deliver events via webhooks to a serverless Strands Agent that uses conversation history as the accumulator — the LLM is invoked on every earthquake event to analyze it in context, and generates tailored briefing reports per customer when triggered.
 
 ## Glossary
 
 - **MCP_Server_1**: The USGS Earthquake Feed Lambda that polls the USGS API, detects new earthquakes, and delivers filtered events via webhook to subscribers
 - **MCP_Server_2**: The Message Scheduler Lambda that emits time-based briefing trigger events per customer on their configured cron schedule
 - **Webhook_Receiver**: The API Gateway + SQS component that validates Standard Webhooks signatures and buffers events for processing
-- **Serverless_Agent**: The Strands Agent Lambda that processes MCP events, accumulates earthquakes per customer, and generates briefing reports
+- **Serverless_Agent**: The Strands Agent Lambda that processes MCP events, invokes the LLM on every event using conversation history as the accumulator, and generates briefing reports
 - **Subscription_Manager**: The Lambda that creates and refreshes per-customer webhook subscriptions on both MCP servers
 - **Data_API**: The shared API Gateway + Lambda persistence layer for customer config, subscriptions, and reports
 - **Webapp**: The SvelteKit SPA frontend for customer self-service configuration and report viewing
 - **Customer**: An authenticated user with their own subscription parameters, briefing prompt, and isolated session
-- **Session**: Per-customer agent state stored in S3 containing accumulated earthquakes and conversation history
+- **Session**: Per-customer agent state stored in S3 containing the conversation history (which serves as the earthquake accumulator)
 - **Subscription**: A webhook subscription record linking a customer to an MCP server event type with filter parameters
 - **Briefing_Report**: An LLM-generated summary of accumulated earthquake activity for a specific customer
 - **Standard_Webhooks**: The HMAC-SHA256 signature scheme used to authenticate webhook deliveries
@@ -67,9 +67,9 @@ This document defines the requirements for the MCP Events Serverless Agent — a
 1. WHEN the Serverless_Agent is triggered by an SQS message, THE Serverless_Agent SHALL extract the `subscriptionId` from message attributes and resolve it to a `customerId` via the Data_API
 2. WHEN the customer is resolved, THE Serverless_Agent SHALL acquire a distributed lock on the customer ID before reading session state
 3. WHEN the lock is acquired, THE Serverless_Agent SHALL restore the customer's session from S3 using the Strands SDK SessionManager with S3Storage at path `sessions/{customerId}/session.json`
-4. WHEN an `earthquake.detected` event is processed, THE Serverless_Agent SHALL add the earthquake to the customer's `accumulatedEarthquakes` in session state and persist the updated session to S3
-5. WHEN a `briefing.trigger` event is processed, THE Serverless_Agent SHALL synthesize accumulated earthquakes into a briefing report using the customer's `briefingPrompt` and an LLM
-6. WHEN a briefing report is generated, THE Serverless_Agent SHALL write the report via the Data_API, clear the customer's `accumulatedEarthquakes`, and persist the updated session to S3
+4. WHEN an `earthquake.detected` event is processed, THE Serverless_Agent SHALL inject the earthquake data as a user message, invoke the LLM which responds with analysis, and persist the updated conversation history to S3
+5. WHEN a `briefing.trigger` event is processed, THE Serverless_Agent SHALL invoke the LLM with a briefing trigger message; the LLM synthesizes all earthquake observations in its conversation history and calls the save_report tool to persist the report via the Data_API
+6. WHEN a briefing report is saved, THE Serverless_Agent SHALL persist the updated session to S3; the conversation history may be cleared or retained based on context window management strategy after the report is saved
 7. THE Serverless_Agent SHALL release the distributed lock after session state is persisted
 
 ### Requirement 5: Customer Isolation
@@ -102,7 +102,7 @@ This document defines the requirements for the MCP Events Serverless Agent — a
 #### Acceptance Criteria
 
 1. WHEN the Serverless_Agent receives an event with an `eventId` already present in the customer's session metadata, THE Serverless_Agent SHALL skip processing and return success
-2. THE Serverless_Agent SHALL not add the same earthquake twice to a customer's `accumulatedEarthquakes` even if the same event is delivered multiple times
+2. THE Serverless_Agent SHALL not allow the same earthquake to appear as a duplicate user message in conversation history even if the same event is delivered multiple times
 3. WHEN a duplicate `briefing.trigger` event is received after a briefing was already generated, THE Serverless_Agent SHALL not generate an empty report
 
 ### Requirement 8: Subscription Lifecycle Management
@@ -130,6 +130,7 @@ This document defines the requirements for the MCP Events Serverless Agent — a
 5. THE Data_API SHALL provide CRUD operations for CustomerConfig stored in DynamoDB
 6. THE Data_API SHALL provide read and write operations for BriefingReports stored in S3 at `reports/{customerId}/{reportId}.json`
 7. THE Data_API SHALL provide subscription lookup by `subscriptionId` returning the associated `customerId` for event routing
+8. THE Data_API SHALL provide a read-only endpoint `GET /customers/:customerId/session/messages` that reads the session snapshot from the sessions S3 bucket and returns the `messages` array, enforcing the same authorization rules as other routes
 
 ### Requirement 10: Customer Self-Service Webapp
 
@@ -143,6 +144,7 @@ This document defines the requirements for the MCP Events Serverless Agent — a
 4. THE Webapp SHALL display a list of generated briefing reports with the ability to view full report content
 5. THE Webapp SHALL provide a manual trigger button that invokes `POST /trigger-briefing/:customerId` to generate an immediate briefing
 6. THE Webapp SHALL store JWT tokens in memory only (not localStorage) to mitigate XSS token theft
+7. THE Webapp SHALL provide a conversation history view that displays the agent's messages as a chat-style timeline (earthquake event cards, agent response bubbles, tool use action cards, tool result confirmation badges) with auto-refresh every 30 seconds
 
 ### Requirement 11: Briefing Report Generation
 
@@ -150,12 +152,11 @@ This document defines the requirements for the MCP Events Serverless Agent — a
 
 #### Acceptance Criteria
 
-1. WHEN a briefing is generated, THE Serverless_Agent SHALL include all earthquakes accumulated in the customer's session since the last briefing
+1. WHEN a briefing is generated, THE Serverless_Agent SHALL have access to all earthquake observations in the conversation history when generating the report
 2. THE Serverless_Agent SHALL use the customer's `briefingPrompt` as the system prompt for LLM-based report synthesis
-3. THE Briefing_Report SHALL contain a summary, notable quakes, geographic patterns, comparison to previous period, and the raw earthquake data
-4. WHEN a previous briefing exists for the customer, THE Serverless_Agent SHALL retrieve it via the Data_API for comparison analysis
+3. THE Briefing_Report SHALL contain a summary, notable quakes, geographic patterns, and comparison to previous period
+4. WHEN generating a briefing report, THE Serverless_Agent's conversation history SHALL provide continuity with prior earthquake analyses; the save_report tool writes the report via the Data_API
 5. THE Briefing_Report SHALL record `periodStart` and `periodEnd` timestamps bounding the reporting period
-6. THE Briefing_Report SHALL have `totalEarthquakes` equal to the count of earthquakes in `rawData`
 
 ### Requirement 12: Per-Customer Earthquake Filtering
 
@@ -255,3 +256,4 @@ This document defines the requirements for the MCP Events Serverless Agent — a
 3. THE MCP_Server_1 SHALL support filtering earthquakes against up to 100 customer subscriptions per poll cycle
 4. THE Serverless_Agent SHALL use SQS batch size of 1 to ensure each event gets full Lambda execution time
 5. THE system SHALL use standard SQS (not FIFO) to enable concurrent processing of events for different customers
+6. THE Serverless_Agent SHALL handle LLM invocation on every earthquake event with expected load of 5-15 events per day per customer without exceeding Lambda timeout or model throughput limits
