@@ -63,12 +63,6 @@ export const SCHEDULER_HMAC_SECRET_PARAMETER_NAME =
  * src/handler.ts.
  */
 export class SchedulerServerStack extends cdk.Stack {
-  /** Invoke URL of the MCP Server 2 API (consumed by the Subscription Manager and Data API). */
-  public readonly apiUrl: string;
-
-  /** The Subscriptions DynamoDB table owned by MCP Server 2. */
-  public readonly subscriptionsTable: dynamodb.Table;
-
   constructor(scope: Construct, id: string, props: SchedulerServerStackProps) {
     super(scope, id, props);
 
@@ -97,7 +91,6 @@ export class SchedulerServerStack extends cdk.Stack {
       // Demo sample: tear the table down cleanly with the stack.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
-    this.subscriptionsTable = subscriptionsTable;
 
     // --- SSM SecureString: Standard Webhooks HMAC secret ---------------------
     // Referenced by name (see HMAC SECRET NOTE above); the value is populated
@@ -175,7 +168,6 @@ export class SchedulerServerStack extends cdk.Stack {
         stageName: "prod",
       },
     });
-    this.apiUrl = api.url;
 
     const integration = new apigateway.LambdaIntegration(handlerFn);
 

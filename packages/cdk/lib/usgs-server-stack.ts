@@ -61,15 +61,6 @@ export const USGS_HMAC_SECRET_PARAMETER_NAME =
  * stack synthesizes today. Subtask 6.5 should repoint `entry` to src/handler.ts.
  */
 export class UsgsServerStack extends cdk.Stack {
-  /** Invoke URL of the MCP Server 1 API (consumed by the Subscription Manager). */
-  public readonly apiUrl: string;
-
-  /** The shared USGS Cursor State DynamoDB table. */
-  public readonly cursorStateTable: dynamodb.Table;
-
-  /** The Subscriptions DynamoDB table owned by MCP Server 1. */
-  public readonly subscriptionsTable: dynamodb.Table;
-
   constructor(scope: Construct, id: string, props: UsgsServerStackProps) {
     super(scope, id, props);
 
@@ -92,7 +83,6 @@ export class UsgsServerStack extends cdk.Stack {
       // Demo sample: tear the table down cleanly with the stack.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
-    this.cursorStateTable = cursorStateTable;
 
     // --- DynamoDB: Subscriptions ---------------------------------------------
     // subscriptionId is the partition key. MCP Server 1 manages the lifecycle
@@ -109,7 +99,6 @@ export class UsgsServerStack extends cdk.Stack {
       timeToLiveAttribute: "ttl",
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
-    this.subscriptionsTable = subscriptionsTable;
 
     // --- SSM SecureString: Standard Webhooks HMAC secret ---------------------
     // Referenced by name (see HMAC SECRET NOTE above); the value is populated
@@ -191,7 +180,6 @@ export class UsgsServerStack extends cdk.Stack {
         stageName: "prod",
       },
     });
-    this.apiUrl = api.url;
 
     const integration = new apigateway.LambdaIntegration(handlerFn);
 

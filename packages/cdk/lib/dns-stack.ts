@@ -19,19 +19,14 @@ export type DnsStackProps = cdk.StackProps & SharedProps;
  * - Provision an ACM wildcard certificate for `*.<subdomain>.<parentDomain>`
  *   (plus the apex) validated via DNS against the subdomain zone.
  *
- * The subdomain zone and certificate are exposed as public properties so the
- * per-component stacks (Data API, MCP servers, webhook receiver, webapp, auth)
- * can attach custom domains, and via CfnOutput for cross-stack import.
+ * The subdomain zone id and certificate ARN are shared with the per-component
+ * stacks (Data API, MCP servers, webhook receiver, webapp, auth) exclusively
+ * via the CfnOutput exports below, which those stacks import by name with
+ * `Fn.importValue`. No construct references are passed across stacks.
  */
 export class DnsStack extends cdk.Stack {
   /** Fully qualified subdomain, e.g. `earthquake-agent.liguori.people.aws.dev`. */
   public readonly domainName: string;
-
-  /** The hosted zone created for the subdomain. */
-  public readonly subdomainZone: route53.IHostedZone;
-
-  /** Wildcard certificate covering `*.<domainName>` and the apex `<domainName>`. */
-  public readonly certificate: acm.ICertificate;
 
   constructor(scope: Construct, id: string, props: DnsStackProps) {
     super(scope, id, props);
@@ -51,7 +46,6 @@ export class DnsStack extends cdk.Stack {
       zoneName: domainName,
       comment: `Subdomain zone for the MCP Events Serverless Agent sample (${domainName})`,
     });
-    this.subdomainZone = subdomainZone;
 
     // Delegate the subdomain from the parent zone to the new zone by copying
     // the subdomain zone's name servers into an NS record in the parent zone.
@@ -70,7 +64,6 @@ export class DnsStack extends cdk.Stack {
       subjectAlternativeNames: [domainName],
       validation: acm.CertificateValidation.fromDns(subdomainZone),
     });
-    this.certificate = certificate;
 
     new cdk.CfnOutput(this, "SubdomainZoneId", {
       value: subdomainZone.hostedZoneId,

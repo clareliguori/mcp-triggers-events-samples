@@ -24,7 +24,9 @@ export type AuthStackProps = cdk.StackProps & SharedProps;
  * Cross-stack wiring follows the design's CfnOutput / Fn.importValue approach:
  * the wildcard certificate ARN and subdomain hosted zone id are imported from
  * DnsStack's exports rather than passed as construct props, so this stack stays
- * environment agnostic (see bin/app.ts).
+ * environment agnostic (see bin/app.ts). The User Pool id, client id, and
+ * Hosted UI domain are published via the CfnOutput exports below and imported
+ * by name (DataApiStack, WebappStack); no construct references are shared.
  *
  * IMPORTANT: A Cognito custom domain requires its ACM certificate to live in
  * the us-east-1 Region (Cognito fronts custom domains with CloudFront). Deploy
@@ -34,15 +36,6 @@ export type AuthStackProps = cdk.StackProps & SharedProps;
  * custom domain can be created at deploy time.
  */
 export class AuthStack extends cdk.Stack {
-  /** The Cognito User Pool id (consumed by DataApiStack and WebappStack). */
-  public readonly userPoolId: string;
-
-  /** The public User Pool Client id used by the webapp Hosted UI flow. */
-  public readonly clientId: string;
-
-  /** Fully qualified Hosted UI domain, e.g. `auth.earthquake-agent.<parentDomain>`. */
-  public readonly hostedUiDomain: string;
-
   constructor(scope: Construct, id: string, props: AuthStackProps) {
     super(scope, id, props);
 
@@ -71,7 +64,6 @@ export class AuthStack extends cdk.Stack {
       // Demo sample: tear the pool down cleanly with the stack.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
-    this.userPoolId = userPool.userPoolId;
 
     // Public client for the SPA: no generated secret means Cognito requires
     // PKCE for the authorization code grant. Implicit grant is disabled.
@@ -94,7 +86,6 @@ export class AuthStack extends cdk.Stack {
       },
       preventUserExistenceErrors: true,
     });
-    this.clientId = client.userPoolClientId;
 
     // Import the shared wildcard certificate (us-east-1) and subdomain zone
     // from DnsStack via their exported names. Using Fn.importValue keeps this
@@ -112,7 +103,6 @@ export class AuthStack extends cdk.Stack {
         certificate,
       },
     });
-    this.hostedUiDomain = authDomainName;
 
     // Alias record so the Hosted UI domain resolves to the Cognito managed
     // CloudFront distribution. The subdomain zone is imported from DnsStack.

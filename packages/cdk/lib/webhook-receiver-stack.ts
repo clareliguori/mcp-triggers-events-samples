@@ -55,15 +55,6 @@ export type WebhookReceiverStackProps = cdk.StackProps & SharedProps;
  * src/handler.ts.
  */
 export class WebhookReceiverStack extends cdk.Stack {
-  /** The standard SQS queue that buffers validated webhook events. */
-  public readonly eventQueue: sqs.Queue;
-
-  /** The dead-letter queue for events that exhaust the retry budget. */
-  public readonly deadLetterQueue: sqs.Queue;
-
-  /** The CloudWatch alarm watching the dead-letter queue depth. */
-  public readonly dlqDepthAlarm: cloudwatch.Alarm;
-
   constructor(scope: Construct, id: string, props: WebhookReceiverStackProps) {
     super(scope, id, props);
 
@@ -78,7 +69,6 @@ export class WebhookReceiverStack extends cdk.Stack {
       enforceSSL: true,
       retentionPeriod: cdk.Duration.days(14),
     });
-    this.deadLetterQueue = deadLetterQueue;
 
     const eventQueue = new sqs.Queue(this, "EventQueue", {
       enforceSSL: true,
@@ -91,12 +81,11 @@ export class WebhookReceiverStack extends cdk.Stack {
         maxReceiveCount: 3,
       },
     });
-    this.eventQueue = eventQueue;
 
     // --- CloudWatch alarm on DLQ depth (Requirement 18.2) -------------------
     // Fire as soon as a single message lands in the DLQ; missing data (an empty
     // DLQ reports no datapoints) is treated as not breaching.
-    const dlqDepthAlarm = new cloudwatch.Alarm(this, "DlqDepthAlarm", {
+    new cloudwatch.Alarm(this, "DlqDepthAlarm", {
       alarmName: "earthquake-agent-webhook-dlq-depth",
       alarmDescription:
         "Alarms when messages accumulate in the Webhook Receiver dead-letter queue",
@@ -110,7 +99,6 @@ export class WebhookReceiverStack extends cdk.Stack {
         cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
-    this.dlqDepthAlarm = dlqDepthAlarm;
 
     // --- SSM SecureString secrets for signature validation ------------------
     // The handler verifies each delivery's Standard Webhooks signature against

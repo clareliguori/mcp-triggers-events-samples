@@ -47,12 +47,6 @@ export type WebappStackProps = cdk.StackProps & SharedProps;
  * pointed at the webapp build output) is wired up once the webapp exists.
  */
 export class WebappStack extends cdk.Stack {
-  /** The S3 bucket that stores the built SvelteKit SPA assets. */
-  public readonly siteBucket: s3.Bucket;
-
-  /** The CloudFront distribution that serves the SPA. */
-  public readonly distribution: cloudfront.Distribution;
-
   constructor(scope: Construct, id: string, props: WebappStackProps) {
     super(scope, id, props);
 
@@ -68,7 +62,6 @@ export class WebappStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
     });
-    this.siteBucket = siteBucket;
 
     // --- Security response headers -------------------------------------------
     const responseHeadersPolicy = new cloudfront.ResponseHeadersPolicy(
@@ -135,7 +128,6 @@ export class WebappStack extends cdk.Stack {
         },
       ],
     });
-    this.distribution = distribution;
 
     // --- Route53 alias to the distribution -----------------------------------
     const subdomainZone = route53.HostedZone.fromHostedZoneAttributes(

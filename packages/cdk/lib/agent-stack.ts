@@ -54,12 +54,6 @@ export type AgentStackProps = cdk.StackProps & SharedProps;
  * src/handler.ts.
  */
 export class AgentStack extends cdk.Stack {
-  /** The S3 bucket holding per-customer session conversation history. */
-  public readonly sessionsBucket: s3.Bucket;
-
-  /** The DynamoDB table backing the per-customer distributed session lock. */
-  public readonly sessionLocksTable: dynamodb.Table;
-
   constructor(scope: Construct, id: string, props: AgentStackProps) {
     super(scope, id, props);
 
@@ -82,7 +76,6 @@ export class AgentStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
     });
-    this.sessionsBucket = sessionsBucket;
 
     // --- DynamoDB: session locks ---------------------------------------------
     // customerId is the partition key; the TTL attribute auto-releases locks
@@ -96,7 +89,6 @@ export class AgentStack extends cdk.Stack {
       timeToLiveAttribute: "ttl",
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
-    this.sessionLocksTable = sessionLocksTable;
 
     // --- Lambda handler -------------------------------------------------------
     // Compiled stack lives at packages/cdk/dist/lib, so walk up to the repo's

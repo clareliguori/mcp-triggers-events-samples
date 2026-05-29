@@ -69,18 +69,6 @@ export type DataApiStackProps = cdk.StackProps & SharedProps;
  *   caller type and enforce per-customer access rules.
  */
 export class DataApiStack extends cdk.Stack {
-  /** Invoke URL of the Data API (consumed by Agent and Subscription Manager). */
-  public readonly apiUrl: string;
-
-  /** The Customer Config DynamoDB table (stream enabled). */
-  public readonly customerConfigTable: dynamodb.Table;
-
-  /** The Subscriptions DynamoDB table (GSI on customerId). */
-  public readonly subscriptionsTable: dynamodb.Table;
-
-  /** The S3 bucket that stores briefing reports. */
-  public readonly reportsBucket: s3.Bucket;
-
   constructor(scope: Construct, id: string, props: DataApiStackProps) {
     super(scope, id, props);
 
@@ -117,7 +105,6 @@ export class DataApiStack extends cdk.Stack {
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       },
     );
-    this.customerConfigTable = customerConfigTable;
 
     // --- DynamoDB: Subscriptions (GSI on customerId) --------------------------
     // subscriptionId is the partition key (used by the agent to resolve
@@ -137,7 +124,6 @@ export class DataApiStack extends cdk.Stack {
       partitionKey: { name: "customerId", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
-    this.subscriptionsTable = subscriptionsTable;
 
     // --- S3: Briefing reports bucket -----------------------------------------
     // Reports are stored at reports/{customerId}/{reportId}.json (Requirement
@@ -151,7 +137,6 @@ export class DataApiStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
     });
-    this.reportsBucket = reportsBucket;
 
     // --- Cross-stack imports --------------------------------------------------
     // Sessions bucket ARN is exported by AgentStack (subtask 2.5). Imported as a
@@ -287,7 +272,6 @@ export class DataApiStack extends cdk.Stack {
         stageName: "prod",
       },
     });
-    this.apiUrl = api.url;
 
     const integration = new apigateway.LambdaIntegration(handlerFn);
 
