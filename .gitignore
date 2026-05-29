@@ -141,3 +141,9 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# AWS CDK
+**/cdk.out/
+# Account-specific lookup cache (Route53 zone, AMIs, etc.). Each deployer
+# resolves these for their own account, so it is not committed in this sample.
+**/cdk.context.json
