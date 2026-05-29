@@ -1,0 +1,20 @@
+{
+  "name": "@mcp-events/agent",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Serverless Strands Agent Lambda — processes MCP events from both servers",
+  "main": "dist/handler.js",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean"
+  },
+  "dependencies": {
+    "@deliveryhero/dynamodb-lock": "*",
+    "@mcp-events/shared": "0.0.1",
+    "@strands-agents/sdk": "*",
+    "zod": "*"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "8.10.147"
+  }
+}

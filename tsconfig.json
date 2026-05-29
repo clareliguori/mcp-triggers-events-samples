@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/cdk" },
+    { "path": "./packages/data-api" },
+    { "path": "./packages/usgs-server" },
+    { "path": "./packages/scheduler-server" },
+    { "path": "./packages/webhook-receiver" },
+    { "path": "./packages/agent" },
+    { "path": "./packages/subscription-manager" }
+  ]
+}

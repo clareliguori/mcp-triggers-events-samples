@@ -1,0 +1,15 @@
+{
+  "name": "@mcp-events/shared",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Shared TypeScript types, validation schemas, and constants for the MCP Events Serverless Agent sample",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean"
+  },
+  "dependencies": {
+    "zod": "*"
+  }
+}

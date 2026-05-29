@@ -1,0 +1,9 @@
+{
+  "name": "@mcp-events/webapp",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Customer-facing SvelteKit SPA. Initialized in task 12.1.",
+  "scripts": {
+    "build": "echo 'webapp not yet initialized — see task 12.1'"
+  }
+}

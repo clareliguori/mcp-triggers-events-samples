@@ -1,0 +1,20 @@
+{
+  "name": "@mcp-events/cdk",
+  "version": "0.0.1",
+  "private": true,
+  "description": "CDK app for the MCP Events Serverless Agent sample (multi-stack deployment)",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy --all"
+  },
+  "dependencies": {
+    "@mcp-events/shared": "0.0.1",
+    "aws-cdk-lib": "*",
+    "constructs": "*"
+  },
+  "devDependencies": {
+    "aws-cdk": "2.1027.0"
+  }
+}
