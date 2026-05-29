@@ -634,19 +634,19 @@ interface CustomerRouting {
   }>;
 }
 
-// Distributed lock for session write serialization (direct DynamoDB access)
-interface CustomerSessionLockManager {
-  acquireLock: (
-    customerId: string,
-    ownerId: string, // Lambda request ID
-    ttlSeconds?: number, // Default: 60
-    timeoutMs?: number, // Max wait time, default: 10000
-  ) => Promise<{ acquired: boolean; lockKey: string }>;
-  releaseLock: (
-    customerId: string,
-    ownerId: string, // Must match the owner who acquired
-  ) => Promise<void>;
-}
+// Distributed lock for session write serialization
+// Uses @deliveryhero/dynamodb-lock library (no custom implementation needed)
+import { DynamoDBLock } from "@deliveryhero/dynamodb-lock";
+
+const lock = new DynamoDBLock({
+  tableName: process.env.LOCKS_TABLE_NAME!,
+  dynamoDBClient: ddbClient,
+  ttl: 60_000, // 60 seconds
+});
+
+// Usage in handler:
+// const release = await lock.acquire(customerId, { timeout: 10_000 });
+// try { ... } finally { await release(); }
 
 // Data API client (HTTP calls with IAM SigV4 signing)
 // Note: Session state is NOT accessed via Data API — agent uses S3Storage directly
@@ -1726,7 +1726,7 @@ Each customer receives their own tailored briefing from the same underlying USGS
 | `zod`                                  | Schema validation for tool inputs and payloads (Data API + Agent)                              | ^3.x                                     |
 | `standard-webhooks`                    | Standard Webhooks signature generation/validation                                              | ^1.x                                     |
 | `cron-parser`                          | Parse and evaluate customer cron schedules                                                     | ^4.x                                     |
-| `dynamodb-lock-client`                 | DynamoDB-based distributed locking (or simple conditional-write implementation)                | ^1.x (or custom)                         |
+| `@deliveryhero/dynamodb-lock`          | DynamoDB-based distributed locking for session write serialization                             | latest                                   |
 | `fast-check`                           | Property-based testing                                                                         | ^3.x                                     |
 | `vitest`                               | Test runner                                                                                    | ^1.x                                     |
 | `svelte`                               | Frontend UI framework (webapp SPA)                                                             | ^5.x                                     |

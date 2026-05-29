@@ -12,7 +12,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - Create root `tsconfig.json` with project references
     - Create per-package `tsconfig.json` files extending root config
     - Add `vitest` and `fast-check` as dev dependencies at root
-    - Add `aws-cdk-lib`, `constructs`, `@strands-agents/sdk`, `@modelcontextprotocol/sdk`, `@aws/run-mcp-servers-with-aws-lambda`, `standard-webhooks`, `zod` dependencies
+    - Add `aws-cdk-lib`, `constructs`, `@strands-agents/sdk`, `@modelcontextprotocol/sdk`, `@aws/run-mcp-servers-with-aws-lambda`, `@deliveryhero/dynamodb-lock`, `standard-webhooks`, `zod` dependencies
     - _Requirements: 13.1_
     - _Validation: `npm install` succeeds without errors; `npx tsc --noEmit` compiles without errors across all packages_
 
@@ -220,20 +220,20 @@ This implementation plan breaks the multi-stack CDK application into incremental
   - _Validation: All preceding tasks' validations pass; `npx tsc --noEmit` compiles entire monorepo; `npx vitest run` passes all tests_
 
 - [ ] 9. Serverless Agent
-  - [ ] 9.1 Implement distributed lock manager
-    - Create `packages/agent/src/lock.ts` with `acquireLock` and `releaseLock` functions using DynamoDB conditional writes
-    - Acquisition: `ConditionExpression: attribute_not_exists(lockKey) OR expiresAt < :now`
-    - Release: `ConditionExpression: ownerId = :myOwnerId`
-    - Retry loop with 500ms intervals for up to 10s timeout
-    - TTL of 60 seconds for auto-cleanup of crashed holders
+  - [ ] 9.1 Configure distributed lock using @deliveryhero/dynamodb-lock
+    - Create `packages/agent/src/lock.ts` that instantiates `DynamoDBLock` from `@deliveryhero/dynamodb-lock` with the session locks table name and DynamoDB client
+    - Configure TTL of 60 seconds and acquisition timeout of 10 seconds
+    - Export a helper function `withLock(customerId, fn)` that acquires the lock, runs the function, and releases in a finally block
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
-    - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/agent/src/lock.ts`_
+    - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests verifying lock helper wraps the library correctly; `npx eslint packages/agent/src/lock.ts`_
 
-  - [ ] 9.2 Write property test for session write serialization (Property 8)
+  - [ ] 9.2 Write integration test for distributed lock behavior (Property 8)
     - **Property 8: Session Write Serialization (Mutual Exclusion)**
-    - Simulate concurrent lock acquisition attempts, verify at most one succeeds at any time; verify expired TTL locks are acquirable; verify only owner can release
+    - Test that two concurrent `withLock` calls for the same customer ID result in one waiting for the other (not both executing simultaneously)
+    - Test that a lock with expired TTL can be acquired by a new caller
+    - Use mocked DynamoDB client to simulate contention scenarios
     - **Validates: Requirements 6.1, 6.2, 6.4, 6.5**
-    - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
+    - _Validation: `npx vitest run <test-file>` passes all tests_
 
   - [ ] 9.3 Implement event routing and customer resolution
     - Create `packages/agent/src/router.ts` with SQS message parsing, subscriptionId extraction from message attributes, and customer resolution via Data API (IAM SigV4 signed HTTP call)
