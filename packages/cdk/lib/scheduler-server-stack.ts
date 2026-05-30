@@ -150,7 +150,7 @@ export class SchedulerServerStack extends cdk.Stack {
     const certificate = acm.Certificate.fromCertificateArn(
       this,
       "WildcardCertificate",
-      cdk.Fn.importValue("EarthquakeAgent-WildcardCertificateArn"),
+      cdk.Fn.importValue("EarthquakeAgent-RegionalWildcardCertificateArn"),
     );
 
     const api = new apigateway.RestApi(this, "SchedulerMcpApi", {

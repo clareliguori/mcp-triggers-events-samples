@@ -865,13 +865,20 @@ const webapp = new WebappStack(app, "WebappStack", {
 });
 ```
 
-**DNS & TLS Setup** (shared across stacks):
+**DNS & TLS Setup** (split across two stacks by region):
 
-- Look up existing Route53 hosted zone for `parentDomain` (already registered)
-- Create a new Route53 hosted zone for `earthquake-agent.<parentDomain>`
-- Add NS delegation record in parent zone pointing to the new subdomain zone
-- Create ACM wildcard certificate for `*.earthquake-agent.<parentDomain>` (DNS validation via Route53)
-- Each stack's API Gateway uses a custom domain name with the shared certificate
+The DNS/TLS foundation is split into two stacks because ACM certificates are regional and have conflicting region requirements: CloudFront (Webapp) and Cognito (Auth) custom domains require their certificate in us-east-1, while REGIONAL API Gateway custom domains require their certificate in the API's own region.
+
+- **DnsRegionalStack** (deploys to the target region resolved from `CDK_DEFAULT_REGION`):
+  - Look up existing Route53 hosted zone for `parentDomain` (already registered)
+  - Create a new Route53 hosted zone for `earthquake-agent.<parentDomain>` (the zone is owned here so same-region application stacks import its id via `Fn.importValue`)
+  - Add NS delegation record in parent zone pointing to the new subdomain zone
+  - Create a REGIONAL ACM wildcard certificate for `*.earthquake-agent.<parentDomain>` (DNS validation via Route53), used by the four REGIONAL API Gateway custom domains (Data API, USGS, Scheduler, Webhook Receiver)
+- **DnsUsEast1Stack** (always pinned to us-east-1 in `bin/app.ts`, regardless of target region):
+  - Create a us-east-1 ACM wildcard certificate for `*.earthquake-agent.<parentDomain>`, used by the Webapp CloudFront distribution and the Cognito Hosted UI custom domain
+  - DNS-validated against the subdomain zone from DnsRegionalStack (shared across regions via `crossRegionReferences`)
+
+Both wildcard certificates validate the same FQDN against the same hosted zone; ACM uses one deterministic validation CNAME per FQDN, so they share a single validation record and each renews automatically and independently. AuthStack and WebappStack receive the us-east-1 certificate as a cross-region construct reference (`crossRegionReferences: true`) because `Fn.importValue` cannot cross regions; every other cross-stack value uses named `CfnOutput` / `Fn.importValue`.
 
 **Stack Responsibilities**:
 

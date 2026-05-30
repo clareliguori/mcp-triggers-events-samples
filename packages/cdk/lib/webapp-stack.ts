@@ -1,5 +1,5 @@
 import * as cdk from "aws-cdk-lib";
-import * as acm from "aws-cdk-lib/aws-certificatemanager";
+import type * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as route53 from "aws-cdk-lib/aws-route53";
@@ -8,7 +8,18 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { resolveDomainName, type SharedProps } from "./shared-props.js";
 
-export type WebappStackProps = cdk.StackProps & SharedProps;
+export interface WebappStackProps extends cdk.StackProps, SharedProps {
+  /**
+   * The us-east-1 wildcard certificate created by DnsUsEast1Stack. CloudFront
+   * requires its certificate in us-east-1. This stack deploys to the target
+   * region, so the certificate is passed across regions as a construct
+   * reference (Fn.importValue cannot resolve across regions) using CDK's
+   * `crossRegionReferences`. This is the documented cross-region exception to
+   * the named-export convention; the subdomain zone id is still imported by
+   * name (same region).
+   */
+  readonly usEast1Certificate: acm.ICertificate;
+}
 
 /**
  * Webapp stack for the MCP Events Serverless Agent sample.
@@ -37,9 +48,11 @@ export type WebappStackProps = cdk.StackProps & SharedProps;
  * `S3Origin` + `OriginAccessIdentity` pattern is intentionally avoided.
  *
  * CERTIFICATE NOTE: CloudFront requires its ACM certificate to live in
- * us-east-1. The shared wildcard certificate created by DnsStack already lives
- * in us-east-1 (this sample deploys to us-east-1, see AuthStack), so importing
- * it here satisfies that constraint.
+ * us-east-1. The us-east-1 wildcard certificate created by DnsUsEast1Stack is
+ * injected as a construct reference across regions (see
+ * {@link WebappStackProps.usEast1Certificate}), so this stack can deploy to any
+ * target region while satisfying that constraint. The subdomain zone id is
+ * imported by name from DnsRegionalStack (same region).
  *
  * ASSET DEPLOYMENT NOTE: The SvelteKit app is built in task 12.x. This stack
  * provisions the bucket and distribution only; deploying the built static
@@ -91,12 +104,10 @@ export class WebappStack extends cdk.Stack {
       },
     );
 
-    // --- Import shared wildcard certificate (us-east-1) ----------------------
-    const certificate = acm.Certificate.fromCertificateArn(
-      this,
-      "WildcardCertificate",
-      cdk.Fn.importValue("EarthquakeAgent-WildcardCertificateArn"),
-    );
+    // --- us-east-1 wildcard certificate (cross-region construct reference) ---
+    // CloudFront requires its certificate in us-east-1; it is injected from
+    // DnsUsEast1Stack across regions.
+    const certificate = props.usEast1Certificate;
 
     // --- CloudFront distribution (OAC origin) --------------------------------
     const distribution = new cloudfront.Distribution(this, "Distribution", {

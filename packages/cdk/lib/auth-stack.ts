@@ -1,12 +1,23 @@
 import * as cdk from "aws-cdk-lib";
-import * as acm from "aws-cdk-lib/aws-certificatemanager";
+import type * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53targets from "aws-cdk-lib/aws-route53-targets";
 import { Construct } from "constructs";
 import { resolveDomainName, type SharedProps } from "./shared-props.js";
 
-export type AuthStackProps = cdk.StackProps & SharedProps;
+export interface AuthStackProps extends cdk.StackProps, SharedProps {
+  /**
+   * The us-east-1 wildcard certificate created by DnsUsEast1Stack. Cognito
+   * fronts custom Hosted UI domains with CloudFront and therefore requires the
+   * certificate in us-east-1. This stack deploys to the target region, so the
+   * certificate is passed across regions as a construct reference (Fn.importValue
+   * cannot resolve across regions) using CDK's `crossRegionReferences`. This is
+   * the documented cross-region exception to the named-export convention; the
+   * subdomain zone id is still imported by name (same region).
+   */
+  readonly usEast1Certificate: acm.ICertificate;
+}
 
 /**
  * Authentication foundation for the MCP Events Serverless Agent sample.
@@ -19,21 +30,21 @@ export type AuthStackProps = cdk.StackProps & SharedProps;
  *   single page apps.
  * - Attach a custom Hosted UI domain at `auth.<subdomain>.<parentDomain>`
  *   (for example `auth.earthquake-agent.liguori.people.aws.dev`) using the
- *   shared wildcard certificate, and point a Route53 alias record at it.
+ *   us-east-1 wildcard certificate, and point a Route53 alias record at it.
  *
- * Cross-stack wiring follows the design's CfnOutput / Fn.importValue approach:
- * the wildcard certificate ARN and subdomain hosted zone id are imported from
- * DnsStack's exports rather than passed as construct props, so this stack stays
- * environment agnostic (see bin/app.ts). The User Pool id, client id, and
- * Hosted UI domain are published via the CfnOutput exports below and imported
- * by name (DataApiStack, WebappStack); no construct references are shared.
+ * Cross-stack wiring: the subdomain hosted zone id is imported from
+ * DnsRegionalStack's export by name (same region) via Fn.importValue. The
+ * us-east-1 certificate is consumed as a construct reference across regions
+ * (see {@link AuthStackProps.usEast1Certificate}). The User Pool id, client id,
+ * and Hosted UI domain are published via the CfnOutput exports below and
+ * imported by name (DataApiStack, WebappStack).
  *
  * IMPORTANT: A Cognito custom domain requires its ACM certificate to live in
- * the us-east-1 Region (Cognito fronts custom domains with CloudFront). Deploy
- * this sample to us-east-1 so the shared wildcard certificate created by
- * DnsStack satisfies that constraint. Cognito also requires the parent domain
- * `<subdomain>.<parentDomain>` to resolve (have a DNS A record) before the
- * custom domain can be created at deploy time.
+ * the us-east-1 Region (Cognito fronts custom domains with CloudFront), which
+ * the injected us-east-1 certificate satisfies regardless of the target region.
+ * Cognito also requires the parent domain `<subdomain>.<parentDomain>` to
+ * resolve (have a DNS A record) before the custom domain can be created at
+ * deploy time.
  */
 export class AuthStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: AuthStackProps) {
@@ -87,14 +98,9 @@ export class AuthStack extends cdk.Stack {
       preventUserExistenceErrors: true,
     });
 
-    // Import the shared wildcard certificate (us-east-1) and subdomain zone
-    // from DnsStack via their exported names. Using Fn.importValue keeps this
-    // stack environment agnostic per the design's cross-stack approach.
-    const certificate = acm.Certificate.fromCertificateArn(
-      this,
-      "WildcardCertificate",
-      cdk.Fn.importValue("EarthquakeAgent-WildcardCertificateArn"),
-    );
+    // The us-east-1 wildcard certificate is injected as a construct reference
+    // (cross-region from DnsUsEast1Stack); Cognito requires it in us-east-1.
+    const certificate = props.usEast1Certificate;
 
     // Custom Hosted UI domain at auth.<subdomain>.<parentDomain>.
     const userPoolDomain = userPool.addDomain("HostedUiDomain", {
@@ -105,7 +111,8 @@ export class AuthStack extends cdk.Stack {
     });
 
     // Alias record so the Hosted UI domain resolves to the Cognito managed
-    // CloudFront distribution. The subdomain zone is imported from DnsStack.
+    // CloudFront distribution. The subdomain zone id is imported by name from
+    // DnsRegionalStack (same region).
     const subdomainZone = route53.HostedZone.fromHostedZoneAttributes(
       this,
       "SubdomainZone",
