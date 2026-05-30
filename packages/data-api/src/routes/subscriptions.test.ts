@@ -192,7 +192,7 @@ describe("listSubscriptions", () => {
     );
 
     expect(res.statusCode).toBe(200);
-    const body = res.body as { subscriptions: Array<Record<string, unknown>> };
+    const body = res.body as { subscriptions: Record<string, unknown>[] };
     expect(body.subscriptions).toHaveLength(2);
     for (const sub of body.subscriptions) {
       expect(sub.secret).toBe(PLAINTEXT_SECRET);

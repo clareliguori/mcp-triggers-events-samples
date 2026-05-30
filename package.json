@@ -2,6 +2,7 @@
   "name": "mcp-events-serverless-agent",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "description": "MCP Events Serverless Agent — earthquake monitoring sample (multi-package monorepo)",
   "license": "Apache-2.0",
   "workspaces": [
@@ -19,7 +20,9 @@
     "build": "tsc --build",
     "clean": "tsc --build --clean",
     "typecheck": "tsc --build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -35,9 +38,13 @@
     "zod": "4.1.12"
   },
   "devDependencies": {
+    "@eslint/js": "^9.18.0",
     "@types/node": "22.10.10",
+    "eslint": "^9.18.0",
     "fast-check": "3.23.2",
+    "globals": "^15.14.0",
     "typescript": "5.7.3",
+    "typescript-eslint": "^8.21.0",
     "vitest": "2.1.8"
   }
 }

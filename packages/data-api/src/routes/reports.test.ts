@@ -188,7 +188,7 @@ describe("listReports", () => {
     const res = await listReports(makeContext({ method: "GET" }));
 
     expect(res.statusCode).toBe(200);
-    const body = res.body as { reports: Array<{ reportId: string }> };
+    const body = res.body as { reports: { reportId: string }[] };
     expect(body.reports.map((r) => r.reportId)).toEqual([newerId, olderId]);
     // Summaries are lightweight: no full report fields like notableQuakes.
     expect(body.reports[0]).not.toHaveProperty("notableQuakes");
@@ -207,7 +207,7 @@ describe("listReports", () => {
       makeContext({ method: "GET", query: { latest: "true" } }),
     );
 
-    const body = res.body as { reports: Array<{ reportId: string }> };
+    const body = res.body as { reports: { reportId: string }[] };
     expect(body.reports).toHaveLength(1);
     expect(body.reports[0].reportId).toBe(newerId);
   });

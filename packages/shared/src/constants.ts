@@ -108,8 +108,8 @@ export const USGS_CURSOR_MAX_IDS = 200;
 /**
  * MCP event type names emitted by the two MCP servers.
  */
-export const EVENT_NAME_EARTHQUAKE_DETECTED = "earthquake.detected" as const;
-export const EVENT_NAME_BRIEFING_TRIGGER = "briefing.trigger" as const;
+export const EVENT_NAME_EARTHQUAKE_DETECTED = "earthquake.detected";
+export const EVENT_NAME_BRIEFING_TRIGGER = "briefing.trigger";
 
 /**
  * Standard Webhooks symmetric secret format used for per-subscription webhook
