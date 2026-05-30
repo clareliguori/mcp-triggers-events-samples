@@ -5,6 +5,7 @@ import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as kms from "aws-cdk-lib/aws-kms";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as route53 from "aws-cdk-lib/aws-route53";
@@ -27,6 +28,16 @@ export type DataApiStackProps = cdk.StackProps & SharedProps;
  * - DynamoDB tables: Customer Config (DynamoDB Stream enabled so the
  *   Subscription Manager can react to new customers) and Subscriptions (with a
  *   global secondary index on `customerId` for per-customer lookups).
+ * - A customer-managed KMS key for client-side field encryption of the
+ *   per-subscription webhook secret stored in the Subscriptions table. The Data
+ *   API Lambda owns AND uses this key: it encrypts the `secret` attribute with
+ *   `kms:Encrypt` before writing (PutItem/UpdateItem) and decrypts it with
+ *   `kms:Decrypt` after reading (GetItem), so DynamoDB only ever holds
+ *   ciphertext. Callers (Subscription Manager on store, Webhook Receiver on
+ *   read) always exchange the plaintext `whsec_` with the Data API over
+ *   IAM-authed HTTPS and hold no KMS permissions. This key is used ONLY by the
+ *   Data API Lambda within this stack — it is NOT exported and NOT granted
+ *   cross-stack (Requirements 17.5, 17.8).
  * - An S3 bucket for briefing reports laid out as
  *   `reports/{customerId}/{reportId}.json`.
  * - Dual authorization: a Cognito User Pool Authorizer for the webapp and IAM
@@ -125,6 +136,25 @@ export class DataApiStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // --- KMS: per-table key for client-side secret encryption ----------------
+    // The per-subscription Standard Webhooks secret is client-side field-
+    // encrypted with this customer-managed key by the Data API Lambda BEFORE
+    // being written to the Subscriptions table, and decrypted after reading, so
+    // DynamoDB only ever holds ciphertext (Requirement 17.5). This key is owned
+    // AND used by the Data API Lambda only; it is NOT exported and NOT granted
+    // to any other stack (Requirement 17.8). Callers exchange the plaintext
+    // `whsec_` with the Data API over IAM-authed HTTPS. Key rotation is enabled;
+    // the key is destroyed with the demo stack.
+    const subscriptionSecretKey = new kms.Key(this, "SubscriptionSecretKey", {
+      description:
+        "Client-side encryption key for per-subscription webhook secrets in the Data API Subscriptions table",
+      enableKeyRotation: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    subscriptionSecretKey.addAlias(
+      "alias/earthquake-agent/data-api-subscription-secret",
+    );
+
     // --- S3: Briefing reports bucket -----------------------------------------
     // Reports are stored at reports/{customerId}/{reportId}.json (Requirement
     // 9.6). The bucket is private; the Data API Lambda is the only reader and
@@ -200,6 +230,7 @@ export class DataApiStack extends cdk.Stack {
         COGNITO_USER_POOL_ID: userPool.userPoolId,
         ALLOWED_ORIGIN: appOrigin,
         SCHEDULER_MCP_URL: schedulerMcpUrl,
+        SUBSCRIPTION_SECRET_KEY_ID: subscriptionSecretKey.keyArn,
       },
     });
 
@@ -207,6 +238,10 @@ export class DataApiStack extends cdk.Stack {
     customerConfigTable.grantReadWriteData(handlerFn);
     subscriptionsTable.grantReadWriteData(handlerFn);
     reportsBucket.grantReadWrite(handlerFn);
+    // kms:Encrypt/Decrypt on the Subscriptions table key so the Data API Lambda
+    // can client-side field-encrypt the secret attribute on write and decrypt
+    // it on read (Requirement 17.5). This key is used only by this Lambda.
+    subscriptionSecretKey.grantEncryptDecrypt(handlerFn);
 
     // Read-only s3:GetObject on the AgentStack sessions bucket, scoped to the
     // sessions/ prefix, for the read-only session messages endpoint

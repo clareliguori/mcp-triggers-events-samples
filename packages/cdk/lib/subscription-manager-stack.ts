@@ -15,7 +15,7 @@ export type SubscriptionManagerStackProps = cdk.StackProps & SharedProps;
 /**
  * Subscription Manager stack for the MCP Events Serverless Agent sample.
  *
- * Responsibilities (Requirements 8.x, 13.4, 13.5, 14.6, 17.3, 17.7):
+ * Responsibilities (Requirements 8.x, 13.4, 13.5, 14.6, 17.3, 17.7, 17.9):
  * - A Lambda with dual triggers:
  *   1. The CustomerConfig DynamoDB Stream (from DataApiStack) so a new or
  *      updated customer immediately gets webhook subscriptions created on both
@@ -27,7 +27,10 @@ export type SubscriptionManagerStackProps = cdk.StackProps & SharedProps;
  *   Lambda can call the MCP servers' `events/subscribe` method and the Data API
  *   (all via SigV4-signed HTTP using StreamableHTTPClientWithSigV4Transport)
  *   (Requirements 14.6, 17.7), plus DynamoDB Stream read on the CustomerConfig
- *   stream.
+ *   stream. It generates each subscription's `whsec_` secret and passes the
+ *   plaintext value to the Data API over IAM-authed HTTPS; the Data API
+ *   client-side encrypts it at its storage boundary. The Subscription Manager
+ *   therefore holds NO KMS permissions (Requirement 17.9).
  *
  * STREAM TRIGGER NOTE: DataApiStack owns the CustomerConfig table and exports
  * its stream ARN as `EarthquakeAgent-CustomerConfigStreamArn`. We import that

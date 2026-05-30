@@ -38,11 +38,14 @@ export type WebhookReceiverStackProps = cdk.StackProps & SharedProps;
  * Webhooks HMAC-SHA256 signature rather than IAM. Per the MCP Events extension,
  * the signing secret is client-supplied per subscription, so the Lambda handler
  * (subtask 5.4) does NOT hold per-server secrets. Instead, for each delivery it
- * reads the `X-MCP-Subscription-Id` header, looks up that subscription's secret
- * via the Data API (`GET /subscriptions/{subscriptionId}`, IAM SigV4 signed),
- * and validates the Standard Webhooks signature against the per-subscription
- * secret before enqueueing anything (Requirements 3.1, 17.1). The per-delivery
- * lookup is well within the latency budget (Requirement 19.2).
+ * reads the `X-MCP-Subscription-Id` header and looks up that subscription's
+ * secret via the Data API (`GET /subscriptions/{subscriptionId}`, IAM SigV4
+ * signed), which returns the **plaintext** `whsec_` value (the Data API
+ * decrypts it at its storage boundary). The receiver then validates the
+ * Standard Webhooks signature against the per-subscription secret before
+ * enqueueing anything (Requirements 3.1, 17.1, 17.9). The Webhook Receiver
+ * holds **no KMS permissions** and performs no KMS operations itself. The
+ * per-delivery lookup is well within the latency budget (Requirement 19.2).
  *
  * Cross-stack wiring follows the design's CfnOutput / Fn.importValue approach
  * (same pattern as DataApiStack) so this stack stays environment agnostic:
@@ -159,6 +162,9 @@ export class WebhookReceiverStack extends cdk.Stack {
     // with IAM SigV4. DataApiStack is created separately and does not export its
     // API id, so scope the grant to this account/region's execute-api namespace
     // (same approach as DataApiStack, AgentStack, and SubscriptionManagerStack).
+    // The Data API returns the plaintext whsec_ (it decrypts at its storage
+    // boundary), so the Webhook Receiver holds NO KMS permissions (Requirement
+    // 17.9).
     handlerFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["execute-api:Invoke"],

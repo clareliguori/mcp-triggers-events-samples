@@ -211,7 +211,12 @@ export const webhookSubscriptionSchema = z.object({
     EVENT_NAME_BRIEFING_TRIGGER,
   ]),
   callbackUrl: z.string().url(),
-  secret: whsecSecretSchema,
+  /**
+   * KMS ciphertext of the per-subscription secret, base64-encoded. The plaintext
+   * `whsec_` is validated on the in-transit `delivery.secret` (see
+   * {@link subscribeParamsSchema}); at rest only opaque ciphertext is stored.
+   */
+  encryptedSecret: z.string().min(1),
   filterParams: subscriptionParamsSchema.optional(),
   schedule: cronExpressionSchema.optional(),
   createdAt: isoDateTimeSchema,

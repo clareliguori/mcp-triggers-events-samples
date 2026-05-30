@@ -192,7 +192,7 @@ This document defines the requirements for the MCP Events Serverless Agent — a
 3. WHEN an `events/subscribe` request is received, THE MCP servers SHALL create a subscription with the provided webhook URL, the REQUIRED client-supplied per-subscription Standard Webhooks `whsec_` secret, and input parameters, returning a `subscriptionId` and `expiresAt`; THE MCP servers SHALL store and use that client-supplied secret to sign the subscription's webhook deliveries and SHALL NOT generate the secret themselves
 4. WHEN delivering events via webhook, THE MCP servers SHALL include the `X-MCP-Subscription-Id` header identifying the target subscription
 5. THE MCP servers SHALL use Standard Webhooks HMAC-SHA256 signatures for all webhook deliveries
-6. THE Subscription_Manager SHALL generate a per-subscription Standard Webhooks `whsec_` secret, supply it in the `delivery.secret` field of every `events/subscribe` request (on both create and refresh) sent via StreamableHTTPClientWithSigV4Transport, and MAY supply a new secret on refresh to rotate the per-subscription secret
+6. THE Subscription*Manager SHALL generate a per-subscription Standard Webhooks `whsec*`secret, supply it in the`delivery.secret`field of every`events/subscribe` request (on both create and refresh) sent via StreamableHTTPClientWithSigV4Transport, and MAY supply a new secret on refresh to rotate the per-subscription secret
 
 ### Requirement 15: Error Handling and Recovery
 
@@ -218,7 +218,7 @@ This document defines the requirements for the MCP Events Serverless Agent — a
 3. THE Data_API SHALL validate that `subscriptionParams.region` is one of: "pacific", "americas", "europe", "asia", "africa", or undefined
 4. THE Data_API SHALL validate that `briefingPrompt` is non-empty and does not exceed 2000 characters
 5. THE Data_API SHALL validate that `briefingSchedule` is a valid cron expression
-6. THE Data_API SHALL validate that a subscription's `secret` is a valid Standard Webhooks `whsec_` value (the literal prefix `whsec_` followed by the base64 encoding of 24 to 64 bytes) and reject any secret that does not conform
+6. THE Data*API SHALL validate that a subscription's `secret` is a valid Standard Webhooks `whsec*`value (the literal prefix`whsec\_` followed by the base64 encoding of 24 to 64 bytes) and reject any secret that does not conform
 7. WHEN validation fails, THE Data_API SHALL return HTTP 400 with a descriptive error message
 
 ### Requirement 17: Security Controls
@@ -231,9 +231,11 @@ This document defines the requirements for the MCP Events Serverless Agent — a
 2. THE Data_API SHALL enforce CORS allowing only the CloudFront distribution origin with credentials mode enabled
 3. THE CDK application SHALL configure each Lambda with a dedicated IAM role following least-privilege principles
 4. THE Webapp SHALL serve static assets from S3 via CloudFront with Origin Access Control (OAC) preventing direct S3 access
-5. THE system SHALL persist each subscription's client-supplied Standard Webhooks secret on its WebhookSubscription record in the Subscriptions DynamoDB table, encrypted at rest via DynamoDB default encryption, with no per-server SSM Parameter Store SecureString HMAC parameters
+5. THE system SHALL persist each subscription's client-supplied Standard Webhooks secret on its WebhookSubscription record in each of the three Subscriptions DynamoDB tables (Data_API, MCP_Server_1, and MCP_Server_2) as a client-side field-encrypted `secret` attribute, encrypted and decrypted by the Lambda co-located with that table using a dedicated customer-managed KMS key created in that table's own stack with automatic key rotation enabled, with no per-server SSM Parameter Store SecureString HMAC parameters
 6. THE MCP servers SHALL use IAM authorization on their API Gateway endpoints for server-to-server communication
 7. THE Serverless_Agent SHALL sign Data_API requests with IAM SigV4 credentials
+8. THE system SHALL restrict each Subscriptions table's customer-managed KMS key to use by the Lambda co-located in that key's own stack only, with no cross-stack KMS key sharing and no cross-stack KMS grants
+9. WHERE the Subscription*Manager or the Webhook_Receiver requires a subscription's Standard Webhooks secret, THE system SHALL exchange the plaintext `whsec*`secret with the Data_API over IAM-authenticated HTTPS and rely on the Data_API to encrypt and decrypt the`secret` attribute at its storage boundary, and THE Subscription_Manager and THE Webhook_Receiver SHALL hold no KMS permissions
 
 ### Requirement 18: Observability and Monitoring
 

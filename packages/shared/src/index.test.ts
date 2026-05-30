@@ -100,7 +100,7 @@ describe("@mcp-events/shared exports", () => {
       serverEndpoint: "https://server.example.com/mcp",
       eventName: EVENT_NAME_BRIEFING_TRIGGER,
       callbackUrl: "https://webhook.example.com/wh",
-      secret: `whsec_${"A".repeat(43)}=`,
+      encryptedSecret: "QmFzZTY0Q2lwaGVydGV4dEV4YW1wbGU=",
       schedule: "0 0 * * *",
       createdAt: "2024-01-01T00:00:00Z",
       expiresAt: "2024-01-01T01:00:00Z",

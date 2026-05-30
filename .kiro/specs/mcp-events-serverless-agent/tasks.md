@@ -22,6 +22,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - Create `packages/shared/src/validation.ts` with zod schemas for all models (CustomerConfig input validation, event payload validation, subscription params validation including the required `delivery.secret` in `whsec_` format)
     - Create `packages/shared/src/constants.ts` with shared constants (region list, magnitude bounds, cron validation regex, TTL defaults)
     - Export all types and schemas from `packages/shared/src/index.ts`
+    - Optionally, a small shared KMS encrypt/decrypt helper (taking a key id/arn and a KMS client) MAY live in `packages/shared` for reuse by the Data API and MCP server handlers that client-side field-encrypt the subscription `secret`
     - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6_
     - _Validation: `npx tsc --noEmit` compiles without errors; import the types in a test file and verify they're accessible_
     - _(Updated: webhook secrets are now per-subscription and client-supplied; see tasks 5.x/6.5/7.3/10.1)_
@@ -52,29 +53,35 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - Configure dual authorizers: Cognito User Pool Authorizer + IAM Authorizer on same routes
     - Configure CORS for CloudFront origin only
     - Grant Data API Lambda `s3:GetObject` on AgentStack's sessions bucket (cross-stack import of sessions bucket ARN) for the read-only session messages endpoint
+    - Create a dedicated customer-managed KMS key (CMK) in this stack with automatic rotation enabled, used only by the Data API Lambda to client-side field-encrypt the Subscriptions table `secret` attribute; the key is NOT exported and NOT granted cross-stack
+    - Grant the Data API Lambda `kms:Encrypt` and `kms:Decrypt` on that CMK and pass the key id/arn to the Lambda as an environment variable
     - Export API URL, table ARNs, stream ARN via CfnOutput
-    - _Requirements: 9.1, 9.2, 9.3, 9.8, 13.4, 13.5, 17.2, 17.3_
+    - _Requirements: 9.1, 9.2, 9.3, 9.8, 13.4, 13.5, 17.2, 17.3, 17.5, 17.8_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx cdk synth DataApiStack` produces valid CloudFormation template; template contains AWS::ApiGateway::RestApi, AWS::Lambda::Function, AWS::DynamoDB::Table, and AWS::S3::Bucket resources_
+    - _(Updated: per-table dedicated CMK client-side field encryption for the subscription secret; see 17.5/17.8)_
 
   - [x] 2.4 Implement UsgsServerStack and SchedulerServerStack
     - Create `packages/cdk/lib/usgs-server-stack.ts` with API Gateway (IAM auth, custom domain `usgs-mcp.earthquake-agent.<parentDomain>`), Lambda, DynamoDB tables (Cursor State, Subscriptions), EventBridge rule (every 5 min)
     - Create `packages/cdk/lib/scheduler-server-stack.ts` with API Gateway (IAM auth, custom domain `scheduler-mcp.earthquake-agent.<parentDomain>`), Lambda, DynamoDB table (Subscriptions), EventBridge rule (every 1 min)
-    - These stacks do NOT create a per-server SSM SecureString HMAC secret; the webhook signing secret is now per-subscription and client-supplied, persisted on each `WebhookSubscription` record in the Subscriptions table (encrypted at rest via DynamoDB default encryption)
+    - These stacks do NOT create a per-server SSM SecureString HMAC secret; the webhook signing secret is now per-subscription and client-supplied, persisted on each `WebhookSubscription` record in the Subscriptions table
+    - Each stack creates its own dedicated customer-managed KMS key (CMK) with automatic rotation enabled, used only by that server's Lambda to client-side field-encrypt its Subscriptions table `secret` attribute; the key is NOT exported and NOT granted cross-stack
+    - Grant each server Lambda `kms:Encrypt` and `kms:Decrypt` on its own stack's CMK and pass the key id/arn to the Lambda as an environment variable
     - Export API URLs via CfnOutput
-    - _Requirements: 13.4, 13.5, 17.5, 17.6_
+    - _Requirements: 13.4, 13.5, 17.5, 17.6, 17.8_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx cdk synth UsgsServerStack SchedulerServerStack` produces valid CloudFormation templates; templates contain AWS::ApiGateway::RestApi, AWS::Lambda::Function, AWS::DynamoDB::Table, and AWS::Events::Rule resources_
-    - _(Updated: webhook secrets are now per-subscription and client-supplied; the per-server SSM SecureString is removed. CDK code change handled separately; see tasks 5.x/6.5/7.3/10.1)_
+    - _(Updated: per-table dedicated CMK client-side field encryption for the subscription secret; see 17.5/17.8. Webhook secrets remain per-subscription and client-supplied; the per-server SSM SecureString is removed. CDK code change handled separately; see tasks 5.x/6.5/7.3/10.1)_
 
   - [x] 2.5 Implement WebhookReceiverStack, AgentStack, SubscriptionManagerStack, and WebappStack
     - Create `packages/cdk/lib/webhook-receiver-stack.ts` with API Gateway (custom domain `webhook.earthquake-agent.<parentDomain>`), Lambda, SQS queue + DLQ, CloudWatch alarm on DLQ depth
     - The Webhook Receiver Lambda does NOT read per-server HMAC SSM secrets; it selects the per-subscription secret for each delivery by looking it up from the Subscriptions table via the Data API, keyed by the `X-MCP-Subscription-Id` header (grant the receiver the necessary read access)
+    - The Webhook Receiver Lambda holds NO KMS permissions; it relies on the Data API to decrypt the stored secret and returns plaintext `whsec_` from `GET /subscriptions/{id}`
     - Create `packages/cdk/lib/agent-stack.ts` with Lambda (SQS trigger, batch size 1), S3 sessions bucket, DynamoDB session locks table, IAM role with execute-api:Invoke on Data API
     - Export sessions bucket ARN via CfnOutput for cross-stack read-only access by DataApiStack
-    - Create `packages/cdk/lib/subscription-manager-stack.ts` with Lambda (dual triggers: DynamoDB Stream from CustomerConfig + EventBridge every 5 min), IAM role with execute-api:Invoke on MCP server API Gateways and Data API
+    - Create `packages/cdk/lib/subscription-manager-stack.ts` with Lambda (dual triggers: DynamoDB Stream from CustomerConfig + EventBridge every 5 min), IAM role with execute-api:Invoke on MCP server API Gateways and Data API; SubscriptionManagerStack grants the Lambda NO KMS permissions (it exchanges plaintext `whsec_` with the Data API over IAM-authed HTTPS)
     - Create `packages/cdk/lib/webapp-stack.ts` with S3 bucket, CloudFront distribution (custom domain `app.earthquake-agent.<parentDomain>`, OAC), response headers policy
-    - _Requirements: 13.1, 13.4, 13.5, 17.3, 17.4, 18.2, 19.4, 19.5_
+    - _Requirements: 13.1, 13.4, 13.5, 17.3, 17.4, 17.9, 18.2, 19.4, 19.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx cdk synth WebhookReceiverStack AgentStack SubscriptionManagerStack WebappStack` produces valid CloudFormation templates; templates contain expected resources (SQS, Lambda, S3, CloudFront)_
-    - _(Updated: webhook secrets are now per-subscription and client-supplied; the Webhook Receiver selects the secret per delivery via the Subscriptions table / Data API keyed by `X-MCP-Subscription-Id`; see tasks 5.x/6.5/7.3/10.1)_
+    - _(Updated: Webhook Receiver and Subscription Manager hold no KMS permissions; they exchange plaintext `whsec_`with the Data API which encrypts/decrypts at its storage boundary; see 17.9. Webhook secrets remain per-subscription and client-supplied, selected per delivery via the Subscriptions table / Data API keyed by`X-MCP-Subscription-Id`; see tasks 5.x/6.5/7.3/10.1)\_
 
 - [x] 3. Checkpoint — Verify CDK synth
   - Ensure `cdk synth` succeeds for all stacks, ask the user if questions arise.
@@ -108,7 +115,8 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - Create `packages/data-api/src/routes/reports.ts` with GET list (supports `?latest=true`), GET by reportId, POST handlers
     - Reports stored in S3 at `reports/{customerId}/{reportId}.json`
     - Subscription lookup by subscriptionId returns associated customerId for event routing
-    - _Requirements: 9.6, 9.7, 5.4_
+    - When writing a `WebhookSubscription` (POST/PUT), client-side KMS-encrypt the `secret` attribute before PutItem/UpdateItem using the DataApiStack CMK; when reading (GET /subscriptions/{id}, GET by customerId), KMS-decrypt the `secret` so the API returns the plaintext `whsec_` to the caller
+    - _Requirements: 9.6, 9.7, 5.4, 17.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/data-api/src/routes/subscriptions.ts packages/data-api/src/routes/reports.ts`_
 
   - [ ] 4.5 Implement manual trigger endpoint
@@ -150,11 +158,11 @@ This implementation plan breaks the multi-stack CDK application into incremental
 
   - [ ] 5.4 Implement Webhook Receiver Lambda handler
     - Create `packages/webhook-receiver/src/handler.ts` with API Gateway proxy event handler
-    - Extract the `X-MCP-Subscription-Id` header and look up that subscription's secret (via the Data API / Subscriptions table)
+    - Extract the `X-MCP-Subscription-Id` header and look up that subscription's secret (via the Data API / Subscriptions table); the receiver performs no KMS operations itself — it receives the plaintext `whsec_` from the Data API (which decrypts at its storage boundary)
     - Validate the Standard Webhooks signature against the per-subscription secret using the signature library
     - Enqueue the validated event to SQS with `subscriptionId` as message attribute
     - Return 200 on success, 401 on invalid signature, 400 on missing headers
-    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 19.2_
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 17.9, 19.2_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/webhook-receiver/src/handler.ts`_
 
 - [ ] 6. MCP Server 1 — USGS Earthquake Feed
@@ -189,10 +197,11 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - Create `packages/usgs-server/src/handler.ts` with dual-trigger handler (EventBridge for polling, API Gateway for MCP protocol)
     - Implement `events/list`, `events/subscribe`, `events/unsubscribe` MCP methods
     - On `events/subscribe`, store the client-supplied `delivery.secret` (the `whsec_` value) on the subscription record; the server does NOT generate or own a per-server secret
+    - Client-side KMS-encrypt the client-supplied `delivery.secret` before storing it on the Subscriptions table using the UsgsServerStack CMK; decrypt it only when signing a delivery
     - Deliver filtered earthquakes via HTTP POST with Standard Webhooks signatures computed using that subscription's stored secret, plus the `X-MCP-Subscription-Id` header
     - Implement retry with exponential backoff (3 attempts: 1s/5s/30s)
     - Manage subscription lifecycle (create, refresh, expire) in DynamoDB
-    - _Requirements: 1.3, 14.1, 14.3, 14.4, 14.5, 15.1_
+    - _Requirements: 1.3, 14.1, 14.3, 14.4, 14.5, 15.1, 17.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/usgs-server/src/handler.ts`_
 
 - [ ] 7. MCP Server 2 — Message Scheduler
@@ -212,9 +221,10 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - Create `packages/scheduler-server/src/handler.ts` with dual-trigger handler (EventBridge for schedule check, API Gateway for MCP protocol + manual trigger)
     - Implement `events/list`, `events/subscribe`, `events/unsubscribe` MCP methods
     - On `events/subscribe`, store the client-supplied `delivery.secret` (the `whsec_` value) on the subscription record; the server does NOT generate or own a per-server secret
+    - Client-side KMS-encrypt the client-supplied `delivery.secret` before storing it on the Subscriptions table using the SchedulerServerStack CMK; decrypt it only when signing a delivery
     - Implement manual trigger endpoint (`POST /trigger-briefing/:customerId`)
     - Deliver `briefing.trigger` events via HTTP POST with Standard Webhooks signatures computed using that subscription's stored secret, plus the `X-MCP-Subscription-Id` header
-    - _Requirements: 2.2, 2.4, 14.2, 14.3, 14.4, 14.5_
+    - _Requirements: 2.2, 2.4, 14.2, 14.3, 14.4, 14.5, 17.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/scheduler-server/src/handler.ts`_
 
   - [ ] 7.4 Write property test for subscription creation response validity (Property 14)

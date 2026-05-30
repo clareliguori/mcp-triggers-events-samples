@@ -351,7 +351,7 @@ sequenceDiagram
             Sub->>MCP2: POST /mcp (events/subscribe refresh)<br/>+ delivery.secret (optionally rotated whsec_)
             MCP2-->>Sub: {subscriptionId, expiresAt}
         end
-        Sub->>DDB_SUB: Update WebhookSubscription record<br/>(expiresAt, lastRefreshedAt, rotated secret if any)
+        Sub->>DDB_SUB: Update WebhookSubscription record<br/>(expiresAt, lastRefreshedAt, rotated encryptedSecret if any) (encrypt on rotate)
     end
 ```
 
@@ -385,11 +385,11 @@ sequenceDiagram
 
     Sub->>MCP1: POST /mcp (events/subscribe)<br/>earthquake.detected + customer filter params<br/>+ delivery.secret (fresh whsec_, client-generated)
     MCP1-->>Sub: {subscriptionId, expiresAt}
-    Sub->>DataAPI: POST /customers/{customerId}/subscriptions<br/>(store subscription record incl. secret)
+    Sub->>DataAPI: POST /customers/{customerId}/subscriptions<br/>(store subscription record incl. encryptedSecret) (encrypt)
 
     Sub->>MCP2: POST /mcp (events/subscribe)<br/>briefing.trigger + customer schedule<br/>+ delivery.secret (fresh whsec_, client-generated)
     MCP2-->>Sub: {subscriptionId, expiresAt}
-    Sub->>DataAPI: POST /customers/{customerId}/subscriptions<br/>(store subscription record incl. secret)
+    Sub->>DataAPI: POST /customers/{customerId}/subscriptions<br/>(store subscription record incl. encryptedSecret) (encrypt)
 
     Note over Sub: Same Lambda handles both new registrations<br/>(DynamoDB Stream trigger) and scheduled refreshes<br/>(EventBridge trigger)
 ```
@@ -455,7 +455,7 @@ interface McpServer1Methods {
 - Include `X-MCP-Subscription-Id` header in webhook deliveries for customer routing
 - Deliver events via HTTP POST with Standard Webhooks signatures, signing each delivery with that subscription's client-supplied secret
 - Manage webhook subscriptions (create, refresh, expire), persisting the client-supplied `delivery.secret` as part of each subscription's record
-- Store subscriptions (including their per-subscription secret) and cursor state in DynamoDB
+- Store subscriptions (including their per-subscription secret) and cursor state in DynamoDB. MCP Server 1 **owns a customer-managed KMS key** for its Subscriptions table (created in UsgsServerStack). It **encrypts the client-supplied `whsec_` secret with `kms:Encrypt` before storing** it (as the `encryptedSecret` ciphertext, bound to `subscriptionId` via encryption context) and **decrypts it with `kms:Decrypt`** only when it needs the plaintext `whsec_` to sign a delivery. This key is owned by UsgsServerStack and used only by this server's Lambda (no cross-stack key sharing).
 
 ---
 
@@ -517,16 +517,16 @@ interface ManualTriggerEndpoint {
 - Support manual trigger via REST endpoint (`POST /trigger-briefing/:customerId`)
 - Include `X-MCP-Subscription-Id` header in webhook deliveries for customer routing
 - Manage per-customer webhook subscriptions (create, refresh, expire), persisting the client-supplied `delivery.secret` as part of each subscription's record
-- Store subscriptions (including their per-subscription secret) in DynamoDB
+- Store subscriptions (including their per-subscription secret) in DynamoDB. MCP Server 2 **owns a customer-managed KMS key** for its Subscriptions table (created in SchedulerServerStack). It **encrypts the client-supplied `whsec_` secret with `kms:Encrypt` before storing** it (as the `encryptedSecret` ciphertext, bound to `subscriptionId` via encryption context) and **decrypts it with `kms:Decrypt`** only when it needs the plaintext `whsec_` to sign a delivery. This key is owned by SchedulerServerStack and used only by this server's Lambda (no cross-stack key sharing).
 - Deliver events via HTTP POST with Standard Webhooks signatures, signing each delivery with that subscription's client-supplied secret
 
 ---
 
 ### Component 3: Webhook Receiver (API Gateway + SQS) — `MCP CLIENT/HOST side`
 
-**Purpose**: Receives webhook deliveries from both MCP servers, validates Standard Webhooks signatures, extracts the `X-MCP-Subscription-Id` header for customer routing, and buffers events in SQS with the subscription ID as a message attribute for reliable processing by the agent Lambda. It holds no per-server secrets; instead, on each delivery it uses the `X-MCP-Subscription-Id` header to look up that subscription's secret before verifying the signature.
+**Purpose**: Receives webhook deliveries from both MCP servers, validates Standard Webhooks signatures, extracts the `X-MCP-Subscription-Id` header for customer routing, and buffers events in SQS with the subscription ID as a message attribute for reliable processing by the agent Lambda. It holds no per-server secrets; instead, on each delivery it uses the `X-MCP-Subscription-Id` header to resolve that subscription's secret before verifying the signature.
 
-**MCP Protocol Role**: This component acts on behalf of the **MCP Client/Host**. It is the webhook callback endpoint that both MCP Servers deliver events to. It receives events destined for the client, extracts routing information (subscription ID → customer), looks up the per-subscription secret to verify the Standard Webhooks signature, and buffers them for the Serverless Agent to process.
+**MCP Protocol Role**: This component acts on behalf of the **MCP Client/Host**. It is the webhook callback endpoint that both MCP Servers deliver events to. It receives events destined for the client, extracts routing information (subscription ID → customer), resolves the per-subscription secret to verify the Standard Webhooks signature, and buffers them for the Serverless Agent to process.
 
 **Interface**:
 
@@ -555,7 +555,7 @@ interface McpSubscriptionHeaders {
 **Responsibilities**:
 
 - Extract `X-MCP-Subscription-Id` header from incoming webhooks
-- Look up that subscription's client-supplied secret (via the Data API / Subscriptions table) and validate the Standard Webhooks HMAC-SHA256 signature against it (the per-delivery lookup is well within the latency budget)
+- Resolve that subscription's secret by calling the Data API (`GET /subscriptions/{id}` over IAM-authed HTTPS), which returns the **ciphertext** `encryptedSecret` (the Data API is a passthrough and does not decrypt). The Webhook Receiver then **decrypts the ciphertext with `kms:Decrypt` on the Data API Subscriptions table key** (supplying the `subscriptionId` encryption context) to recover the plaintext `whsec_` in memory, and validates the Standard Webhooks HMAC-SHA256 signature against it (the per-delivery lookup plus decrypt is well within the latency budget). The Webhook Receiver holds **decrypt-only** permission on the Data API table key (consumed via the exported key ARN) and never stores the plaintext.
 - Reject replayed or expired webhook deliveries (timestamp tolerance)
 - Enqueue validated events to SQS with `subscriptionId` as a message attribute
 - Return 200 quickly to avoid webhook timeout/retry
@@ -697,6 +697,8 @@ interface DataApiClient {
 
 As the MCP Client/Host, the Subscription Manager is **the party that owns webhook secret generation**. Per the experimental MCP Events extension webhook delivery mode, each `events/subscribe` call carries a REQUIRED, client-supplied `delivery.secret`: a Standard Webhooks `whsec_` symmetric secret (literal prefix `whsec_` followed by base64 of 24-64 random bytes). The Subscription Manager generates a fresh `whsec_` secret per subscription using a CSPRNG, passes it in `delivery.secret`, and persists it on that subscription's `WebhookSubscription` record via the Data API. The MCP servers never generate the secret.
 
+The Subscription Manager **holds encrypt + decrypt permission on the Data API Subscriptions table key** (consumed via the exported key ARN `EarthquakeAgent-SubscriptionSecretKeyArn`). It **encrypts the freshly generated `whsec_` with `kms:Encrypt` (bound to `subscriptionId` via encryption context) before storing it** via the Data API, and **decrypts the stored ciphertext with `kms:Decrypt` on refresh**. The plaintext `whsec_` travels only in `delivery.secret` (to the servers) and in memory; what it POSTs to the Data API for storage is the `encryptedSecret` ciphertext. The Data API is a passthrough that stores and returns ciphertext and never sees the plaintext or uses the key.
+
 **Triggers**:
 
 - **DynamoDB Stream** (Customer Config table): INSERT/MODIFY events → create or update subscriptions for new/changed customers
@@ -745,7 +747,7 @@ interface RefreshResult {
   - Generate a fresh `whsec_` secret per subscription (CSPRNG) to supply as `delivery.secret`
   - Call MCP Server 1's `events/subscribe` with customer's filter params (minMagnitude, region, maxDepthKm) and the client-supplied `delivery.secret`
   - Call MCP Server 2's `events/subscribe` with customer's briefing schedule and the client-supplied `delivery.secret`
-  - Store `WebhookSubscription` records (including each subscription's `secret`) via the Data API
+  - Encrypt the `whsec_` with `kms:Encrypt` on the Data API table key (bound to `subscriptionId`) and store `WebhookSubscription` records (with the resulting `encryptedSecret` ciphertext) via the Data API
   - Handle partial failures (one server succeeds, other fails) — retry failed server
   - Idempotent: check if subscriptions already exist before creating duplicates
 
@@ -755,7 +757,7 @@ interface RefreshResult {
   - Call each MCP server's `events/subscribe` to refresh the relevant subscriptions
   - Include customer-specific filter params when refreshing Server 1 subscriptions
   - Optionally rotate the per-subscription secret by generating and supplying a new `whsec_` value on refresh (the server SHOULD dual-sign with the old and new secret during a short grace window)
-  - Update subscription records via the Data API with new `expiresAt`, `lastRefreshedAt`, and (if rotated) the new `secret`
+  - Update subscription records via the Data API with new `expiresAt`, `lastRefreshedAt`, and (if rotated) the new `encryptedSecret` (the rotated `whsec_` re-encrypted with `kms:Encrypt` on the Data API table key)
   - Detect and re-create missing subscriptions for active customers
 
 - **Shared responsibilities**:
@@ -887,24 +889,26 @@ Both wildcard certificates validate the same FQDN against the same hosted zone; 
 **Stack Responsibilities**:
 
 - **AuthStack**: Cognito User Pool, User Pool Client, hosted UI domain (`auth.earthquake-agent.<parentDomain>`)
-- **DataApiStack**: API Gateway + Lambda for Data API routes (config, subscriptions, reports, session messages), DynamoDB tables (Customer Config, Subscriptions), S3 reports bucket, dual auth (Cognito + IAM), read-only `s3:GetObject` on AgentStack's sessions bucket (cross-stack import)
-- **UsgsServerStack**: API Gateway (IAM auth) + Lambda for MCP Server 1, DynamoDB (Cursor State, Subscriptions), EventBridge rule (poll every 5 min)
-- **SchedulerServerStack**: API Gateway (IAM auth) + Lambda for MCP Server 2, DynamoDB (Subscriptions), EventBridge rule (check every 1 min)
-- **WebhookReceiverStack**: API Gateway + Lambda for webhook validation, SQS queue + DLQ
+- **DataApiStack**: API Gateway + Lambda for Data API routes (config, subscriptions, reports, session messages), DynamoDB tables (Customer Config, Subscriptions), a **customer-managed KMS key (rotation enabled) for its Subscriptions table secret**, S3 reports bucket, dual auth (Cognito + IAM), read-only `s3:GetObject` on AgentStack's sessions bucket (cross-stack import). The Data API is a **passthrough** for the secret — it stores and returns the `encryptedSecret` ciphertext and does **not** use the key itself. DataApiStack **exports the key ARN** (export name `EarthquakeAgent-SubscriptionSecretKeyArn`) for the Subscription Manager (encrypt + decrypt) and the Webhook Receiver (decrypt).
+- **UsgsServerStack**: API Gateway (IAM auth) + Lambda for MCP Server 1, DynamoDB (Cursor State, Subscriptions), a **customer-managed KMS key (rotation enabled) for its Subscriptions table secret**, used only by this server's Lambda to encrypt the secret on subscribe and decrypt it to sign deliveries (key stays internal to the stack — not exported), EventBridge rule (poll every 5 min)
+- **SchedulerServerStack**: API Gateway (IAM auth) + Lambda for MCP Server 2, DynamoDB (Subscriptions), a **customer-managed KMS key (rotation enabled) for its Subscriptions table secret**, used only by this server's Lambda to encrypt the secret on subscribe and decrypt it to sign deliveries (key stays internal to the stack — not exported), EventBridge rule (check every 1 min)
+- **WebhookReceiverStack**: API Gateway + Lambda for webhook validation, SQS queue + DLQ, **decrypt-only access to the Data API Subscriptions table key** (imported via `EarthquakeAgent-SubscriptionSecretKeyArn`) so it can decrypt the `encryptedSecret` returned by the Data API before verifying signatures
 - **AgentStack**: Lambda (Serverless Agent), S3 sessions bucket, DynamoDB session locks table, IAM role with `execute-api:Invoke` on Data API
-- **SubscriptionManagerStack**: Lambda with dual triggers (DynamoDB Stream from DataApiStack's Customer Config table + EventBridge schedule), IAM role with `execute-api:Invoke` on MCP server API Gateways and Data API
+- **SubscriptionManagerStack**: Lambda with dual triggers (DynamoDB Stream from DataApiStack's Customer Config table + EventBridge schedule), IAM role with `execute-api:Invoke` on MCP server API Gateways and Data API, **encrypt + decrypt access to the Data API Subscriptions table key** (imported via `EarthquakeAgent-SubscriptionSecretKeyArn`) so it can encrypt the `whsec_` before storing and decrypt on refresh
 - **WebappStack**: S3 bucket for static SvelteKit SPA, CloudFront distribution with custom domain (`app.earthquake-agent.<parentDomain>`), OAC
 
 **Cross-Stack References**:
 
 Stacks export/import values via `CfnOutput` / `Fn.importValue`:
 
-- DataApiStack exports: API URL, Customer Config table ARN + stream ARN, Subscriptions table ARN
+- DataApiStack exports: API URL, Customer Config table ARN + stream ARN, Subscriptions table ARN, Subscriptions table secret KMS key ARN (export name `EarthquakeAgent-SubscriptionSecretKeyArn`, consumed by the Subscription Manager and Webhook Receiver)
 - AuthStack exports: User Pool ID, User Pool Client ID, hosted UI domain
 - UsgsServerStack exports: API URL
 - SchedulerServerStack exports: API URL
 - WebhookReceiverStack exports: SQS queue ARN, webhook endpoint URL
 - AgentStack exports: Sessions bucket ARN (consumed by DataApiStack for read-only access)
+
+The Data API Subscriptions table secret key ARN is exported because two other stacks consume it: the Subscription Manager (encrypt + decrypt) and the Webhook Receiver (decrypt). The **MCP server keys** (UsgsServerStack and SchedulerServerStack) are **intentionally NOT exported** — each is referenced only within its own stack and granted only to that stack's Lambda, so there are no cross-stack `CfnOutput` / `Fn.importValue` entries and no cross-stack KMS grants for those two keys.
 
 ---
 
@@ -1073,6 +1077,7 @@ interface CustomerConfigInput {
   - `GET /customers/:customerId/subscriptions`: List all subscriptions for a customer
   - `POST /customers/:customerId/subscriptions`: Create a new subscription record (used by Registration Handler)
   - `PUT /subscriptions/:subscriptionId`: Update subscription fields like `expiresAt`, `lastRefreshedAt` (used by Subscription Manager)
+  - **Secret field passthrough**: The Data API is a **passthrough** for the per-subscription webhook secret. It stores and returns the `encryptedSecret` attribute (base64 KMS ciphertext) **as-is** and does **not** encrypt, decrypt, or otherwise use any KMS key. Encryption is performed by the caller before storage: the Subscription Manager encrypts the `whsec_` with `kms:Encrypt` on the Data API Subscriptions table key (bound to `subscriptionId`) before `POST`/`PUT`, and the Webhook Receiver decrypts the returned ciphertext with `kms:Decrypt` after `GET`. The plaintext `whsec_` never reaches the Data API.
 - **Report operations**:
   - `GET /customers/:customerId/reports`: List objects in S3 at `reports/{customerId}/` prefix, return metadata. Supports `?latest=true` query param to return only the most recent report.
   - `GET /customers/:customerId/reports/:reportId`: Read specific report JSON from S3 at `reports/{customerId}/{reportId}.json`
@@ -1258,10 +1263,15 @@ interface WebhookSubscription {
   serverEndpoint: string; // Which MCP server (Server 1 or Server 2 URL)
   eventName: string; // Event type subscribed to
   callbackUrl: string; // Webhook delivery URL
-  secret: string; // Per-subscription, client-supplied Standard Webhooks secret
-  // (whsec_ value) generated by the Subscription Manager and passed in
-  // delivery.secret. The server signs deliveries with this; the receiver
-  // looks it up by subscriptionId to verify. Encrypted at rest (see below).
+  encryptedSecret: string; // Base64 KMS ciphertext of the per-subscription
+  // Standard Webhooks whsec_ secret. The whsec_ is generated by the
+  // Subscription Manager and passed to the server in delivery.secret; it is
+  // CLIENT-SIDE ENCRYPTED with the owning Subscriptions table's customer-
+  // managed KMS key before being written here, and bound to subscriptionId via
+  // a KMS encryption context (so a ciphertext copied to a different
+  // subscription fails to decrypt). Only this ciphertext is ever stored at
+  // rest; the plaintext whsec_ travels only in delivery.secret over TLS and is
+  // held in memory to sign/verify (see "Secret Storage" below).
   filterParams?: {
     // Customer-specific filter params (for Server 1)
     minMagnitude?: number;
@@ -1279,16 +1289,26 @@ interface WebhookSubscription {
 **Validation Rules**:
 
 - `callbackUrl` must be HTTPS
-- `secret` is a Standard Webhooks `whsec_` value: the literal prefix `whsec_` followed by base64 of 24-64 random bytes (client-supplied, one per subscription)
+- `encryptedSecret` is, at rest, opaque base64-encoded KMS ciphertext — it is NOT a `whsec_` value and is not parseable as one. The `whsec_` format check (literal prefix `whsec_` followed by base64 of 24-64 random bytes, client-supplied, one per subscription) applies to the **in-transit** plaintext secret carried in `SubscribeParams.delivery.secret`, not to the stored ciphertext.
 - `expiresAt` must be in the future at creation time
 - TTL default: 30 minutes (configurable)
 - `serverEndpoint` must reference a known MCP server
 - `customerId` must reference an existing customer in CustomerConfig table
 - Each customer should have exactly 2 active subscriptions (one per server)
 
-**Secret Storage (encryption at rest)**:
+**Secret Storage (client-side KMS encryption at rest)**:
 
-The `secret` field is the per-subscription `whsec_` value and MUST be encrypted at rest. It is stored as an attribute in the existing Subscriptions DynamoDB table, which uses DynamoDB default encryption at rest — so this sample relies on that table-level encryption for the secret attribute. A production system might instead store each subscription's secret in a dedicated KMS-encrypted store or in AWS Secrets Manager (one secret per subscription); for this sample the DynamoDB-attribute approach (encrypted at rest) is used for simplicity.
+The per-subscription `whsec_` secret is **client-side encrypted with a customer-managed AWS KMS key before being written to any DynamoDB Subscriptions table**, rather than relying on DynamoDB default (AWS-owned key) encryption at rest. The plaintext `whsec_` travels only in `delivery.secret` over TLS and is used in memory to sign/verify deliveries; at rest, only the KMS ciphertext (the `encryptedSecret` field) is stored.
+
+Encryption uses a direct `kms:Encrypt` / `kms:Decrypt` of the ~50-byte secret value — no envelope encryption is needed since the value is well under the 4 KB KMS limit. Each ciphertext is **bound to its `subscriptionId` via a KMS encryption context**, so a ciphertext copied to a different subscription fails to decrypt. A shared crypto helper in `packages/shared` (`crypto.ts`) provides `encryptSubscriptionSecret` / `decryptSubscriptionSecret`, which both apply the `subscriptionId` encryption context. The shared dependency that enables this is `@aws-sdk/client-kms`.
+
+**Key ownership model — one KMS key per Subscriptions table, owned by the service/stack that owns that table (NOT a single shared key)**:
+
+- **Data API Subscriptions table key** — owned by AND used ONLY by the Data API Lambda (within `DataApiStack`). The Data API Lambda client-side field-encrypts the secret with `kms:Encrypt` before writing to its Subscriptions table and decrypts it with `kms:Decrypt` after reading, so it stores ciphertext (the `encryptedSecret` attribute) but returns the plaintext `whsec_` to callers. The **Subscription Manager** (on store/refresh) and **Webhook Receiver** (on read) exchange the plaintext `whsec_` with the Data API over IAM-authed HTTPS and hold **NO** KMS permissions.
+- **USGS server Subscriptions table key** — owned by the USGS server stack, used only by **MCP Server 1** (encrypt on subscribe, decrypt to sign).
+- **Scheduler server Subscriptions table key** — owned by the Scheduler server stack, used only by **MCP Server 2** (encrypt on subscribe, decrypt to sign).
+
+**NONE** of the three Subscriptions-table KMS keys are exported via `CfnOutput`, and none is granted cross-stack — each key is used only by the Lambda in its own stack (Requirement 17.8).
 
 ---
 
@@ -1664,7 +1684,7 @@ _For any_ valid `events/subscribe` request, the MCP server SHALL return a respon
 - **CORS configuration**: API Gateway configured with CORS allowing only the CloudFront distribution origin. Credentials mode enabled for JWT bearer tokens. No wildcard origins.
 - **Frontend token handling**: JWT tokens stored in memory only (not localStorage or sessionStorage) to mitigate XSS token theft. Cognito Hosted UI redirect flow avoids exposing tokens in URLs (authorization code + PKCE).
 - **Webhook authentication**: Standard Webhooks HMAC-SHA256 signatures prevent spoofed event delivery. Each subscription has its own client-supplied `whsec_` secret; the receiver selects the correct secret using the `X-MCP-Subscription-Id` header before verifying. Timestamp validation prevents replay attacks (5-minute tolerance window).
-- **Webhook secret management**: Per the experimental MCP Events extension, webhook secrets are client-supplied and per-subscription. The Subscription Manager (MCP client) generates a fresh `whsec_` secret per subscription with a CSPRNG and passes it in `delivery.secret`; the MCP servers never generate secrets. Secrets are persisted on the `WebhookSubscription` record in the Subscriptions DynamoDB table, encrypted at rest via DynamoDB default encryption (a production system might use a dedicated KMS key or Secrets Manager per subscription). Rotation is performed by supplying a new secret on refresh; the server SHOULD dual-sign with the old and new secret during a short grace window to avoid downtime. There are no per-server SSM SecureString HMAC parameters.
+- **Webhook secret management**: Per the experimental MCP Events extension, webhook secrets are client-supplied and per-subscription. The Subscription Manager (MCP client) generates a fresh `whsec_` secret per subscription with a CSPRNG and passes it in `delivery.secret`; the MCP servers never generate secrets. Each per-subscription `whsec_` is **client-side encrypted with a per-table customer-managed AWS KMS key (rotation enabled), bound to its `subscriptionId` via a KMS encryption context, before being written to any Subscriptions table** — so a ciphertext copied to a different subscription fails to decrypt. **Only the ciphertext is stored at rest** (the `encryptedSecret` field); the plaintext `whsec_` travels only in `delivery.secret` over TLS and is held in memory to sign/verify. Encryption is a direct `kms:Encrypt` / `kms:Decrypt` of the ~50-byte secret (no envelope encryption needed, well under the 4 KB KMS limit), via the shared `packages/shared/crypto.ts` helper (`encryptSubscriptionSecret` / `decryptSubscriptionSecret`). **There is one KMS key per Subscriptions table, owned by the service that owns the table** (NOT a single shared key): the Data API table key (owned by DataApiStack, used by the Subscription Manager to encrypt/decrypt and the Webhook Receiver to decrypt — the Data API itself is a passthrough that only stores/returns ciphertext), the USGS server table key (owned by UsgsServerStack, used only by MCP Server 1), and the Scheduler server table key (owned by SchedulerServerStack, used only by MCP Server 2). Rotation of the `whsec_` itself is performed by supplying a new secret on refresh; the server SHOULD dual-sign with the old and new secret during a short grace window to avoid downtime. There are no per-server SSM SecureString HMAC parameters, and the system does not rely on DynamoDB default (AWS-owned key) encryption at rest for these secrets.
 - **Least-privilege IAM**: Each Lambda has a dedicated role with minimal permissions. Data API Lambda can read/write S3 (reports only) and DynamoDB (Customer Config). Serverless Agent can invoke the Data API, read/write S3 (sessions bucket — direct access via Strands SDK `SessionManager`), and access DynamoDB (Subscriptions, Locks) — it cannot access the reports bucket or Customer Config DynamoDB directly. Server Lambdas can only access their own DynamoDB tables.
 - **Customer data isolation**: S3 paths are prefixed by `customerId` (`sessions/{customerId}/`, `reports/{customerId}/`). The Data API Lambda enforces path-based isolation. For Cognito callers, the `customerId` must match the JWT `sub`. For IAM callers (Serverless Agent), the agent only accesses the customer resolved from the subscription lookup.
 - **Subscription-to-customer integrity**: The mapping from `subscriptionId` to `customerId` is stored in DynamoDB and is the sole source of truth for routing. Tampering with the `X-MCP-Subscription-Id` header cannot escalate access because the subscription record determines the customer, not the event payload.
@@ -1740,6 +1760,7 @@ Each customer receives their own tailored briefing from the same underlying USGS
 | `constructs`                           | CDK constructs library                                                                         | ^10.x                                    |
 | `@aws-sdk/client-s3`                   | S3 operations (Data API Lambda: session persistence and reports)                               | ^3.x                                     |
 | `@aws-sdk/client-dynamodb`             | DynamoDB for customer config, subscriptions, cursor, locks                                     | ^3.x                                     |
+| `@aws-sdk/client-kms`                  | Client-side encryption of the per-subscription webhook secret (shared `crypto.ts`)             | ^3.x                                     |
 | `@aws-sdk/client-sqs`                  | SQS operations (if manual send needed)                                                         | ^3.x                                     |
 | `@aws-sdk/client-scheduler`            | EventBridge Scheduler for briefing schedule                                                    | ^3.x                                     |
 | `aws4-axios` or `aws4fetch`            | SigV4 request signing for Serverless Agent → Data API calls                                    | latest                                   |

@@ -5,6 +5,7 @@ import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
+import * as kms from "aws-cdk-lib/aws-kms";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as route53 from "aws-cdk-lib/aws-route53";
@@ -40,10 +41,14 @@ export type SchedulerServerStackProps = cdk.StackProps & SharedProps;
  * the Standard Webhooks signing secret is client-supplied per subscription. The
  * Subscription Manager generates a `whsec_` secret per subscription and passes
  * it in `delivery.secret` on `events/subscribe`; this server stores that secret
- * on the subscription's record in the Subscriptions table (encrypted at rest
- * via DynamoDB default encryption) and signs that subscription's webhook
- * deliveries with it. The server never generates a secret, so there is no
- * per-server SSM SecureString parameter.
+ * on the subscription's record in the Subscriptions table and signs that
+ * subscription's webhook deliveries with it. The secret is client-side
+ * encrypted with this stack's own customer-managed KMS key BEFORE being written
+ * to the table (so DynamoDB only ever holds ciphertext) and decrypted in memory
+ * with `kms:Decrypt` when signing a delivery. The server never generates a
+ * secret, so there is no per-server SSM SecureString parameter. Each
+ * Subscriptions table has its own key, owned by the service that owns the
+ * table; this stack owns the Scheduler table's key.
  *
  * HANDLER NOTE: The Lambda handler lives in the @mcp-events/scheduler-server
  * package (subtask 7.3 creates src/handler.ts). It is not implemented yet, so
@@ -81,6 +86,21 @@ export class SchedulerServerStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // --- KMS: per-table key for client-side secret encryption ----------------
+    // MCP Server 2 client-side encrypts each subscription's client-supplied
+    // `whsec_` secret with this customer-managed key before writing it to the
+    // Subscriptions table, and decrypts it in memory to sign deliveries
+    // (Requirement 17.5). The key is owned by this stack (it owns the table).
+    const subscriptionSecretKey = new kms.Key(this, "SubscriptionSecretKey", {
+      description:
+        "Client-side encryption key for per-subscription webhook secrets in the Scheduler server Subscriptions table",
+      enableKeyRotation: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    subscriptionSecretKey.addAlias(
+      "alias/earthquake-agent/scheduler-subscription-secret",
+    );
+
     // --- Lambda handler -------------------------------------------------------
     // Compiled stack lives at packages/cdk/dist/lib, so walk up to the repo's
     // packages/ directory to reach the scheduler-server source and up to the
@@ -108,12 +128,15 @@ export class SchedulerServerStack extends cdk.Stack {
       ),
       environment: {
         SUBSCRIPTIONS_TABLE_NAME: subscriptionsTable.tableName,
+        SUBSCRIPTION_SECRET_KEY_ID: subscriptionSecretKey.keyArn,
         WEBHOOK_URL: webhookUrl,
       },
     });
 
     // --- IAM grants (least privilege) ----------------------------------------
     subscriptionsTable.grantReadWriteData(handlerFn);
+    // Encrypt on subscribe, decrypt to sign deliveries.
+    subscriptionSecretKey.grantEncryptDecrypt(handlerFn);
 
     // --- EventBridge: check schedules every 1 minute -------------------------
     new events.Rule(this, "ScheduleCheck", {
