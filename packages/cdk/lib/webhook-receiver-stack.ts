@@ -57,10 +57,8 @@ export type WebhookReceiverStackProps = cdk.StackProps & SharedProps;
  * Lambda) can attach the queue as its SQS event source.
  *
  * HANDLER NOTE: The Lambda handler lives in the @mcp-events/webhook-receiver
- * package (subtask 5.4 creates src/handler.ts). It is not implemented yet, so
- * the NodejsFunction entry points at the existing placeholder src/index.ts so
- * this stack synthesizes today. Subtask 5.4 should repoint `entry` to
- * src/handler.ts.
+ * package at src/handler.ts (subtask 5.4). The NodejsFunction `entry` points at
+ * it directly.
  */
 export class WebhookReceiverStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: WebhookReceiverStackProps) {
@@ -133,7 +131,7 @@ export class WebhookReceiverStack extends cdk.Stack {
     );
     const handlerFn = new NodejsFunction(this, "WebhookReceiverHandler", {
       runtime: lambda.Runtime.NODEJS_20_X,
-      entry: path.join(webhookReceiverPackageRoot, "src", "index.ts"),
+      entry: path.join(webhookReceiverPackageRoot, "src", "handler.ts"),
       handler: "handler",
       memorySize: 256,
       // Signature validation plus an SQS enqueue must finish well within the

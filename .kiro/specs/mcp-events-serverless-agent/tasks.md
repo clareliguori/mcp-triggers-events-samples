@@ -135,8 +135,8 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 9.8, 10.7_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/data-api/src/routes/session.ts`_
 
-- [ ] 5. Webhook Receiver
-  - [ ] 5.1 Implement Standard Webhooks signature validation library
+- [x] 5. Webhook Receiver
+  - [x] 5.1 Implement Standard Webhooks signature validation library
     - Create `packages/webhook-receiver/src/signature.ts` with HMAC-SHA256 signing and verification functions
     - Implement timestamp tolerance check (5-minute window)
     - Look up and verify against the per-subscription secret selected by the `X-MCP-Subscription-Id` header (rather than a per-server secret)
@@ -144,19 +144,19 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 3.1, 3.2, 3.3, 17.1_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/webhook-receiver/src/signature.ts`_
 
-  - [ ] 5.2 Write property test for webhook signature round-trip (Property 1)
+  - [x] 5.2 Write property test for webhook signature round-trip (Property 1)
     - **Property 1: Webhook Signature Round-Trip**
     - For any arbitrary payload and secret, verify that sign then verify returns true; for mismatched secrets, verify returns false
     - **Validates: Requirements 3.1, 3.2, 14.5, 17.1**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [ ] 5.3 Write property test for replay attack rejection (Property 2)
+  - [x] 5.3 Write property test for replay attack rejection (Property 2)
     - **Property 2: Replay Attack Rejection**
     - For any webhook with timestamp > 5 minutes from now, verify rejection regardless of signature validity
     - **Validates: Requirement 3.3**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [ ] 5.4 Implement Webhook Receiver Lambda handler
+  - [x] 5.4 Implement Webhook Receiver Lambda handler
     - Create `packages/webhook-receiver/src/handler.ts` with API Gateway proxy event handler
     - Extract the `X-MCP-Subscription-Id` header and look up that subscription's secret (via the Data API / Subscriptions table); the receiver performs no KMS operations itself — it receives the plaintext `whsec_` from the Data API (which decrypts at its storage boundary)
     - Validate the Standard Webhooks signature against the per-subscription secret using the signature library
