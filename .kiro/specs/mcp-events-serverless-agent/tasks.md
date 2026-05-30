@@ -87,8 +87,8 @@ This implementation plan breaks the multi-stack CDK application into incremental
   - Ensure `cdk synth` succeeds for all stacks, ask the user if questions arise.
   - _Validation: All preceding tasks' validations pass; `npx tsc --noEmit` compiles entire monorepo; `npx cdk synth` succeeds for all stacks_
 
-- [ ] 4. Data API Lambda handlers
-  - [ ] 4.1 Implement Data API Lambda handler with routing and authorization
+- [x] 4. Data API Lambda handlers
+  - [x] 4.1 Implement Data API Lambda handler with routing and authorization
     - Create `packages/data-api/src/handler.ts` with API Gateway proxy event handler
     - Implement route matching for all Data API routes (config CRUD, subscriptions, reports, trigger-briefing)
     - Implement dual authorization logic: extract auth type from `requestContext.authorizer`, enforce customerId == JWT sub for Cognito callers, allow IAM callers access to any customer
@@ -96,13 +96,13 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 9.1, 9.2, 9.3, 5.3_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/data-api/src/handler.ts`_
 
-  - [ ] 4.2 Write property test for Cognito authorization enforcement (Property 11)
+  - [x] 4.2 Write property test for Cognito authorization enforcement (Property 11)
     - **Property 11: Cognito Authorization Enforcement**
     - Generate arbitrary customerId and JWT sub pairs with fast-check, verify that mismatches always return 403 and matches always allow access
     - **Validates: Requirements 5.3, 9.2**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [ ] 4.3 Implement CustomerConfig CRUD operations
+  - [x] 4.3 Implement CustomerConfig CRUD operations
     - Create `packages/data-api/src/routes/config.ts` with GET, PUT, DELETE handlers for `/customers/:customerId/config`
     - Validate input with zod schemas from shared package
     - DynamoDB PutItem/GetItem/UpdateItem operations
@@ -110,7 +110,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 9.5, 16.1, 16.2, 16.3, 16.4, 16.5, 16.6_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/data-api/src/routes/config.ts`_
 
-  - [ ] 4.4 Implement Subscription and Report operations
+  - [x] 4.4 Implement Subscription and Report operations
     - Create `packages/data-api/src/routes/subscriptions.ts` with GET by subscriptionId, GET by customerId, POST, PUT handlers
     - Create `packages/data-api/src/routes/reports.ts` with GET list (supports `?latest=true`), GET by reportId, POST handlers
     - Reports stored in S3 at `reports/{customerId}/{reportId}.json`
@@ -119,14 +119,14 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 9.6, 9.7, 5.4, 17.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/data-api/src/routes/subscriptions.ts packages/data-api/src/routes/reports.ts`_
 
-  - [ ] 4.5 Implement manual trigger endpoint
+  - [x] 4.5 Implement manual trigger endpoint
     - Create `packages/data-api/src/routes/trigger.ts` with `POST /trigger-briefing/:customerId` handler
     - Invoke MCP Server 2's manual trigger endpoint via IAM-signed HTTP request
     - Require Cognito JWT authorization, validate customerId matches JWT sub
     - _Requirements: 2.4, 10.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/data-api/src/routes/trigger.ts`_
 
-  - [ ] 4.6 Implement session messages read-only endpoint
+  - [x] 4.6 Implement session messages read-only endpoint
     - Create `packages/data-api/src/routes/session.ts` with `GET /customers/:customerId/session/messages` handler
     - Read the session snapshot from the sessions S3 bucket at `sessions/{customerId}/session.json` using `s3:GetObject` (read-only access)
     - Extract and return the `messages` array from the session snapshot
