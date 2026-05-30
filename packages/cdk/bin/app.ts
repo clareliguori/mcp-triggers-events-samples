@@ -79,7 +79,7 @@ const dnsUsEast1 = new DnsUsEast1Stack(app, "DnsUsEast1Stack", {
 // the us-east-1 certificate from DnsUsEast1Stack across regions (construct
 // reference + crossRegionReferences). The Cognito custom Hosted UI domain
 // requires its certificate in us-east-1, which that certificate satisfies.
-new AuthStack(app, "AuthStack", {
+const auth = new AuthStack(app, "AuthStack", {
   ...shared,
   env,
   usEast1Certificate: dnsUsEast1.certificate,
@@ -93,42 +93,54 @@ new AuthStack(app, "AuthStack", {
 // Fn.importValue. AgentStack MUST export its sessions bucket ARN under the
 // export name `EarthquakeAgent-SessionsBucketArn` for the read-only
 // s3:GetObject grant to resolve at deploy time.
-new DataApiStack(app, "DataApiStack", { ...shared, env });
+const dataApi = new DataApiStack(app, "DataApiStack", { ...shared, env });
 
 // UsgsServerStack (MCP Server 1 - USGS Earthquake Feed) and SchedulerServerStack
 // (MCP Server 2 - Message Scheduler) each expose an IAM-authorized REGIONAL API
 // Gateway custom domain (usgs-mcp/scheduler-mcp.earthquake-agent.<parentDomain>)
 // for the MCP HTTP transport, a dual-trigger Lambda (API Gateway + an
-// EventBridge poll schedule), DynamoDB tables, and an SSM SecureString for the
-// webhook HMAC secret. They import the REGIONAL wildcard certificate and
-// subdomain zone from DnsRegionalStack via Fn.importValue.
-new UsgsServerStack(app, "UsgsServerStack", { ...shared, env });
-new SchedulerServerStack(app, "SchedulerServerStack", { ...shared, env });
+// EventBridge poll schedule), DynamoDB tables, and a dedicated KMS key for the
+// per-subscription webhook secret. They import the REGIONAL wildcard
+// certificate and subdomain zone from DnsRegionalStack via Fn.importValue.
+const usgsServer = new UsgsServerStack(app, "UsgsServerStack", {
+  ...shared,
+  env,
+});
+const schedulerServer = new SchedulerServerStack(app, "SchedulerServerStack", {
+  ...shared,
+  env,
+});
 
 // WebhookReceiverStack (open REGIONAL API Gateway custom domain
 // webhook.earthquake-agent.<parentDomain> + SQS event queue, DLQ, and a
 // CloudWatch alarm on DLQ depth) owns the webhook delivery endpoint both MCP
 // servers target. It imports the REGIONAL wildcard certificate and subdomain
-// zone from DnsRegionalStack, and references the per-server HMAC SSM secret
-// names so the handler can validate Standard Webhooks signatures. It exports
-// the SQS queue ARN consumed by AgentStack.
-new WebhookReceiverStack(app, "WebhookReceiverStack", { ...shared, env });
+// zone from DnsRegionalStack. It exports the SQS queue ARN consumed by
+// AgentStack.
+const webhookReceiver = new WebhookReceiverStack(app, "WebhookReceiverStack", {
+  ...shared,
+  env,
+});
 
 // AgentStack (Serverless Strands Agent Lambda triggered by the Webhook
 // Receiver SQS queue with batch size 1, an S3 sessions bucket, and a DynamoDB
 // session locks table) imports the webhook queue ARN from WebhookReceiverStack
 // and exports its sessions bucket ARN under EarthquakeAgent-SessionsBucketArn,
 // which DataApiStack imports for read-only session access.
-new AgentStack(app, "AgentStack", { ...shared, env });
+const agent = new AgentStack(app, "AgentStack", { ...shared, env });
 
 // SubscriptionManagerStack (Lambda with dual triggers: the CustomerConfig
 // DynamoDB Stream from DataApiStack plus an EventBridge refresh schedule)
 // imports the CustomerConfig stream ARN from DataApiStack and holds an
 // execute-api:Invoke role for the MCP server API Gateways and the Data API.
-new SubscriptionManagerStack(app, "SubscriptionManagerStack", {
-  ...shared,
-  env,
-});
+const subscriptionManager = new SubscriptionManagerStack(
+  app,
+  "SubscriptionManagerStack",
+  {
+    ...shared,
+    env,
+  },
+);
 
 // WebappStack (S3 SPA bucket fronted by a CloudFront distribution at
 // app.earthquake-agent.<parentDomain> using Origin Access Control, with a
@@ -137,11 +149,31 @@ new SubscriptionManagerStack(app, "SubscriptionManagerStack", {
 // certificate from DnsUsEast1Stack across regions (construct reference +
 // crossRegionReferences). CloudFront requires its certificate in us-east-1,
 // which that certificate satisfies.
-new WebappStack(app, "WebappStack", {
+const webapp = new WebappStack(app, "WebappStack", {
   ...shared,
   env,
   usEast1Certificate: dnsUsEast1.certificate,
   crossRegionReferences: true,
 });
+
+// --- Explicit deploy ordering for Fn.importValue relationships -------------
+// This app shares values across stacks exclusively via named CfnOutput exports
+// and `Fn.importValue` (rather than passing construct references), which keeps
+// the cross-stack contract explicit but means CDK cannot infer deploy order
+// from those string-based imports. Declare each import relationship as a stack
+// dependency so `cdk deploy --all` creates exporters before importers. (The
+// cross-region construct references — DnsUsEast1 -> DnsRegional, Auth/Webapp ->
+// DnsUsEast1 — already add their own implicit dependencies.)
+dnsUsEast1.addDependency(dnsRegional); // subdomain zone (cross-region construct ref)
+auth.addDependency(dnsRegional); // EarthquakeAgent-SubdomainZoneId
+usgsServer.addDependency(dnsRegional); // cert ARN + subdomain zone id
+schedulerServer.addDependency(dnsRegional); // cert ARN + subdomain zone id
+webhookReceiver.addDependency(dnsRegional); // cert ARN + subdomain zone id
+webapp.addDependency(dnsRegional); // EarthquakeAgent-SubdomainZoneId
+agent.addDependency(webhookReceiver); // EarthquakeAgent-WebhookQueueArn
+dataApi.addDependency(dnsRegional); // cert ARN + subdomain zone id
+dataApi.addDependency(auth); // EarthquakeAgent-UserPoolId
+dataApi.addDependency(agent); // EarthquakeAgent-SessionsBucketArn
+subscriptionManager.addDependency(dataApi); // CustomerConfig table + stream ARNs
 
 app.synth();

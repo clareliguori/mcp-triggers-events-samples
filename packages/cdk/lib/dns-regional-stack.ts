@@ -83,6 +83,23 @@ export class DnsRegionalStack extends cdk.Stack {
       comment: "NS delegation to the earthquake-agent subdomain zone",
     });
 
+    // Apex A record for the subdomain zone. A Cognito custom Hosted UI domain
+    // (auth.<subdomain>.<parentDomain>, created by AuthStack) requires its
+    // PARENT domain (this subdomain zone apex, <subdomain>.<parentDomain>) to
+    // resolve to an A record, otherwise Cognito rejects the custom domain with
+    // "Invalid request provided: AWS::Cognito::UserPoolDomain" / "Was not able
+    // to resolve the root domain". The apex is not otherwise used (every real
+    // endpoint lives on a child subdomain), so a documented placeholder address
+    // satisfies Cognito's resolver check without serving traffic. See
+    // https://repost.aws/knowledge-center/cognito-custom-domain-errors.
+    new route53.ARecord(this, "SubdomainApexPlaceholder", {
+      zone: subdomainZone,
+      target: route53.RecordTarget.fromIpAddresses("8.8.8.8"),
+      ttl: cdk.Duration.minutes(5),
+      comment:
+        "Placeholder apex A record so Cognito can resolve the parent of the auth custom domain",
+    });
+
     // REGIONAL wildcard certificate for the API Gateway custom domains plus the
     // apex. DNS validation creates the validation records in the subdomain
     // zone.
