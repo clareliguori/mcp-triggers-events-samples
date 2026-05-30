@@ -23,8 +23,9 @@ export interface AuthStackProps extends cdk.StackProps, SharedProps {
  * Authentication foundation for the MCP Events Serverless Agent sample.
  *
  * Responsibilities (Requirements 13.4, 13.5, 10.1):
- * - Create a Cognito User Pool that supports self sign-up, email sign-in, and
- *   password reset (the flows the webapp Hosted UI exposes).
+ * - Create a Cognito User Pool with email sign-in. For this demo, self sign-up
+ *   and account recovery are disabled, so an administrator provisions users out
+ *   of band rather than the Hosted UI exposing sign-up and password reset.
  * - Create a public User Pool Client (no client secret) configured for the
  *   OAuth authorization code grant, which Cognito serves with PKCE for public
  *   single page apps.
@@ -54,24 +55,25 @@ export class AuthStack extends cdk.Stack {
     const authDomainName = `auth.${domainName}`;
     const appUrl = `https://app.${domainName}`;
 
-    // User Pool: email-based sign-in with self sign-up and email account
-    // recovery (the password reset flow surfaced by the Hosted UI).
+    // User Pool: email-based sign-in. For this demo, self sign-up and account
+    // recovery are disabled, so an administrator provisions users out of band
+    // (for example via `aws cognito-idp admin-create-user`).
     const userPool = new cognito.UserPool(this, "UserPool", {
       userPoolName: "earthquake-agent-users",
-      selfSignUpEnabled: true,
+      selfSignUpEnabled: false,
       signInAliases: { email: true },
       autoVerify: { email: true },
       standardAttributes: {
         email: { required: true, mutable: true },
       },
       passwordPolicy: {
-        minLength: 8,
+        minLength: 12,
         requireLowercase: true,
         requireUppercase: true,
         requireDigits: true,
         requireSymbols: false,
       },
-      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      accountRecovery: cognito.AccountRecovery.NONE,
       // Demo sample: tear the pool down cleanly with the stack.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
