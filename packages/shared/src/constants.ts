@@ -110,3 +110,21 @@ export const USGS_CURSOR_MAX_IDS = 200;
  */
 export const EVENT_NAME_EARTHQUAKE_DETECTED = "earthquake.detected" as const;
 export const EVENT_NAME_BRIEFING_TRIGGER = "briefing.trigger" as const;
+
+/**
+ * Standard Webhooks symmetric secret format used for per-subscription webhook
+ * signing (MCP Events extension webhook delivery mode). The secret is the
+ * literal prefix `whsec_` followed by the base64 encoding of 24 to 64 random
+ * bytes. The Subscription Manager (MCP client) generates one per subscription
+ * and supplies it in `delivery.secret`; the MCP server never generates it.
+ *
+ * This regex validates the structural shape (prefix + base64 charset). The
+ * decoded-length bound (24-64 bytes) is enforced separately by the validator
+ * since it cannot be expressed in a regex.
+ *
+ * Validates Requirement 16.6.
+ */
+export const WHSEC_SECRET_PREFIX = "whsec_";
+export const WHSEC_SECRET_REGEX = /^whsec_[A-Za-z0-9+/]+={0,2}$/;
+export const WHSEC_SECRET_MIN_BYTES = 24;
+export const WHSEC_SECRET_MAX_BYTES = 64;

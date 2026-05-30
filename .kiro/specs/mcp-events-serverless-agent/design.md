@@ -335,7 +335,7 @@ sequenceDiagram
     participant MCP1 as MCP Server 1 [MCP SERVER]
     participant MCP2 as MCP Server 2 [MCP SERVER]
 
-    Note over Sub: Acts on behalf of MCP Client/Host<br/>to keep per-customer subscriptions alive
+    Note over Sub: Acts on behalf of MCP Client/Host<br/>to keep per-customer subscriptions alive.<br/>Owns the per-subscription whsec_ secret.
 
     EB->>Sub: Scheduled trigger
     Sub->>DDB_CFG: Query all active customers
@@ -345,13 +345,13 @@ sequenceDiagram
 
     loop For each expiring subscription
         alt Subscription to MCP Server 1 (earthquake feed)
-            Sub->>MCP1: POST /mcp (events/subscribe refresh)<br/>includes customer's filter params
+            Sub->>MCP1: POST /mcp (events/subscribe refresh)<br/>includes customer's filter params<br/>+ delivery.secret (optionally rotated whsec_)
             MCP1-->>Sub: {subscriptionId, expiresAt}
         else Subscription to MCP Server 2 (scheduler)
-            Sub->>MCP2: POST /mcp (events/subscribe refresh)
+            Sub->>MCP2: POST /mcp (events/subscribe refresh)<br/>+ delivery.secret (optionally rotated whsec_)
             MCP2-->>Sub: {subscriptionId, expiresAt}
         end
-        Sub->>DDB_SUB: Update WebhookSubscription record<br/>(expiresAt, lastRefreshedAt)
+        Sub->>DDB_SUB: Update WebhookSubscription record<br/>(expiresAt, lastRefreshedAt, rotated secret if any)
     end
 ```
 
@@ -383,13 +383,13 @@ sequenceDiagram
     DDB_CFG->>Stream: INSERT event
     Stream->>Sub: Trigger (new customer detected)
 
-    Sub->>MCP1: POST /mcp (events/subscribe)<br/>earthquake.detected + customer filter params
+    Sub->>MCP1: POST /mcp (events/subscribe)<br/>earthquake.detected + customer filter params<br/>+ delivery.secret (fresh whsec_, client-generated)
     MCP1-->>Sub: {subscriptionId, expiresAt}
-    Sub->>DataAPI: POST /customers/{customerId}/subscriptions<br/>(store subscription record)
+    Sub->>DataAPI: POST /customers/{customerId}/subscriptions<br/>(store subscription record incl. secret)
 
-    Sub->>MCP2: POST /mcp (events/subscribe)<br/>briefing.trigger + customer schedule
+    Sub->>MCP2: POST /mcp (events/subscribe)<br/>briefing.trigger + customer schedule<br/>+ delivery.secret (fresh whsec_, client-generated)
     MCP2-->>Sub: {subscriptionId, expiresAt}
-    Sub->>DataAPI: POST /customers/{customerId}/subscriptions<br/>(store subscription record)
+    Sub->>DataAPI: POST /customers/{customerId}/subscriptions<br/>(store subscription record incl. secret)
 
     Note over Sub: Same Lambda handles both new registrations<br/>(DynamoDB Stream trigger) and scheduled refreshes<br/>(EventBridge trigger)
 ```
@@ -400,7 +400,7 @@ sequenceDiagram
 
 **Purpose**: Polls the USGS earthquake API on a schedule, detects new earthquakes using cursor tracking, and delivers each new earthquake as an MCP event via webhook. Filters earthquakes per subscription based on customer-specific parameters (minMagnitude, region, maxDepthKm) defined in the subscription's `inputSchema`.
 
-**MCP Protocol Role**: This is an **MCP Server**. It declares the `earthquake.detected` event type with an `inputSchema` that accepts filter parameters, manages per-customer webhook subscriptions, and delivers filtered events to subscribers using Standard Webhooks signatures.
+**MCP Protocol Role**: This is an **MCP Server**. It declares the `earthquake.detected` event type with an `inputSchema` that accepts filter parameters, manages per-customer webhook subscriptions, and delivers filtered events to subscribers using Standard Webhooks signatures. Per the experimental MCP Events extension webhook delivery mode, the secret used to sign deliveries is **client-supplied per subscription** (provided in `delivery.secret` on `events/subscribe`) — the server never generates it. The server stores each subscription's secret as part of that subscription's record and signs each delivery with that subscription's secret. It does **not** own a single per-server HMAC secret.
 
 **Interface**:
 
@@ -453,9 +453,9 @@ interface McpServer1Methods {
 - For each new earthquake, iterate over active subscriptions and apply per-subscription filter params
 - Only deliver earthquakes that match a subscription's `inputSchema` params (minMagnitude, region, maxDepthKm)
 - Include `X-MCP-Subscription-Id` header in webhook deliveries for customer routing
-- Deliver events via HTTP POST with Standard Webhooks HMAC signatures
-- Manage webhook subscriptions (create, refresh, expire)
-- Store subscriptions and cursor state in DynamoDB
+- Deliver events via HTTP POST with Standard Webhooks signatures, signing each delivery with that subscription's client-supplied secret
+- Manage webhook subscriptions (create, refresh, expire), persisting the client-supplied `delivery.secret` as part of each subscription's record
+- Store subscriptions (including their per-subscription secret) and cursor state in DynamoDB
 
 ---
 
@@ -465,7 +465,7 @@ interface McpServer1Methods {
 
 **Purpose**: Emits time-based trigger events via webhook on per-customer schedules. Each customer has their own subscription with their own cron schedule. The scheduler checks which customers are due for a briefing trigger and fires events only for those customers. Can also be triggered manually for a specific customer for demo purposes.
 
-**MCP Protocol Role**: This is an **MCP Server**. It declares the `briefing.trigger` event type, manages per-customer webhook subscriptions (each with its own schedule), and delivers trigger events to subscribers using Standard Webhooks signatures. It does not expose any tools.
+**MCP Protocol Role**: This is an **MCP Server**. It declares the `briefing.trigger` event type, manages per-customer webhook subscriptions (each with its own schedule), and delivers trigger events to subscribers using Standard Webhooks signatures. Per the experimental MCP Events extension webhook delivery mode, the signing secret is **client-supplied per subscription** (provided in `delivery.secret` on `events/subscribe`) — the server never generates it. The server stores each subscription's secret as part of that subscription's record and signs each delivery with that subscription's secret. It does **not** own a single per-server HMAC secret. It does not expose any tools.
 
 **Interface**:
 
@@ -516,17 +516,17 @@ interface ManualTriggerEndpoint {
 - Emit `briefing.trigger` event only for customers whose schedule matches
 - Support manual trigger via REST endpoint (`POST /trigger-briefing/:customerId`)
 - Include `X-MCP-Subscription-Id` header in webhook deliveries for customer routing
-- Manage per-customer webhook subscriptions (create, refresh, expire)
-- Store subscriptions in DynamoDB
-- Deliver events via HTTP POST with Standard Webhooks HMAC signatures
+- Manage per-customer webhook subscriptions (create, refresh, expire), persisting the client-supplied `delivery.secret` as part of each subscription's record
+- Store subscriptions (including their per-subscription secret) in DynamoDB
+- Deliver events via HTTP POST with Standard Webhooks signatures, signing each delivery with that subscription's client-supplied secret
 
 ---
 
 ### Component 3: Webhook Receiver (API Gateway + SQS) — `MCP CLIENT/HOST side`
 
-**Purpose**: Receives webhook deliveries from both MCP servers, validates Standard Webhooks signatures, extracts the `X-MCP-Subscription-Id` header for customer routing, and buffers events in SQS with the subscription ID as a message attribute for reliable processing by the agent Lambda.
+**Purpose**: Receives webhook deliveries from both MCP servers, validates Standard Webhooks signatures, extracts the `X-MCP-Subscription-Id` header for customer routing, and buffers events in SQS with the subscription ID as a message attribute for reliable processing by the agent Lambda. It holds no per-server secrets; instead, on each delivery it uses the `X-MCP-Subscription-Id` header to look up that subscription's secret before verifying the signature.
 
-**MCP Protocol Role**: This component acts on behalf of the **MCP Client/Host**. It is the webhook callback endpoint that both MCP Servers deliver events to. It receives events destined for the client, extracts routing information (subscription ID → customer), and buffers them for the Serverless Agent to process.
+**MCP Protocol Role**: This component acts on behalf of the **MCP Client/Host**. It is the webhook callback endpoint that both MCP Servers deliver events to. It receives events destined for the client, extracts routing information (subscription ID → customer), looks up the per-subscription secret to verify the Standard Webhooks signature, and buffers them for the Serverless Agent to process.
 
 **Interface**:
 
@@ -554,9 +554,9 @@ interface McpSubscriptionHeaders {
 
 **Responsibilities**:
 
-- Validate Standard Webhooks HMAC-SHA256 signatures (supports secrets from both servers)
-- Reject replayed or expired webhook deliveries (timestamp tolerance)
 - Extract `X-MCP-Subscription-Id` header from incoming webhooks
+- Look up that subscription's client-supplied secret (via the Data API / Subscriptions table) and validate the Standard Webhooks HMAC-SHA256 signature against it (the per-delivery lookup is well within the latency budget)
+- Reject replayed or expired webhook deliveries (timestamp tolerance)
 - Enqueue validated events to SQS with `subscriptionId` as a message attribute
 - Return 200 quickly to avoid webhook timeout/retry
 
@@ -695,6 +695,8 @@ interface DataApiClient {
 
 **MCP Protocol Role**: Acts on behalf of the **MCP Client/Host**. It calls both MCP Servers' `events/subscribe` methods to create and refresh per-customer subscriptions, which is a client-side responsibility. In a traditional long-running MCP client, this would happen within the client process itself — here it's separated into its own Lambda because the client (Serverless Agent) is serverless and only runs when triggered by events.
 
+As the MCP Client/Host, the Subscription Manager is **the party that owns webhook secret generation**. Per the experimental MCP Events extension webhook delivery mode, each `events/subscribe` call carries a REQUIRED, client-supplied `delivery.secret`: a Standard Webhooks `whsec_` symmetric secret (literal prefix `whsec_` followed by base64 of 24-64 random bytes). The Subscription Manager generates a fresh `whsec_` secret per subscription using a CSPRNG, passes it in `delivery.secret`, and persists it on that subscription's `WebhookSubscription` record via the Data API. The MCP servers never generate the secret.
+
 **Triggers**:
 
 - **DynamoDB Stream** (Customer Config table): INSERT/MODIFY events → create or update subscriptions for new/changed customers
@@ -740,9 +742,10 @@ interface RefreshResult {
 
 - **On DynamoDB Stream trigger (new/updated customer)**:
   - Extract the new/updated `CustomerConfig` from the stream record
-  - Call MCP Server 1's `events/subscribe` with customer's filter params (minMagnitude, region, maxDepthKm)
-  - Call MCP Server 2's `events/subscribe` with customer's briefing schedule
-  - Store `WebhookSubscription` records via the Data API
+  - Generate a fresh `whsec_` secret per subscription (CSPRNG) to supply as `delivery.secret`
+  - Call MCP Server 1's `events/subscribe` with customer's filter params (minMagnitude, region, maxDepthKm) and the client-supplied `delivery.secret`
+  - Call MCP Server 2's `events/subscribe` with customer's briefing schedule and the client-supplied `delivery.secret`
+  - Store `WebhookSubscription` records (including each subscription's `secret`) via the Data API
   - Handle partial failures (one server succeeds, other fails) — retry failed server
   - Idempotent: check if subscriptions already exist before creating duplicates
 
@@ -751,12 +754,13 @@ interface RefreshResult {
   - Identify subscriptions expiring within threshold
   - Call each MCP server's `events/subscribe` to refresh the relevant subscriptions
   - Include customer-specific filter params when refreshing Server 1 subscriptions
-  - Update subscription records via the Data API with new `expiresAt` and `lastRefreshedAt`
+  - Optionally rotate the per-subscription secret by generating and supplying a new `whsec_` value on refresh (the server SHOULD dual-sign with the old and new secret during a short grace window)
+  - Update subscription records via the Data API with new `expiresAt`, `lastRefreshedAt`, and (if rotated) the new `secret`
   - Detect and re-create missing subscriptions for active customers
 
 - **Shared responsibilities**:
   - Log failures for alerting (per-customer granularity)
-  - Handle server-specific secrets for each MCP server
+  - Generate and own the per-subscription `whsec_` secret supplied to each server via `delivery.secret` (the client owns secret generation; the servers do not)
   - Use `@aws/run-mcp-servers-with-aws-lambda` `StreamableHTTPClientWithSigV4Transport` to connect to MCP server API Gateways with IAM auth:
 
 ```typescript
@@ -1254,7 +1258,10 @@ interface WebhookSubscription {
   serverEndpoint: string; // Which MCP server (Server 1 or Server 2 URL)
   eventName: string; // Event type subscribed to
   callbackUrl: string; // Webhook delivery URL
-  hmacSecret: string; // Shared secret for Standard Webhooks signatures
+  secret: string; // Per-subscription, client-supplied Standard Webhooks secret
+  // (whsec_ value) generated by the Subscription Manager and passed in
+  // delivery.secret. The server signs deliveries with this; the receiver
+  // looks it up by subscriptionId to verify. Encrypted at rest (see below).
   filterParams?: {
     // Customer-specific filter params (for Server 1)
     minMagnitude?: number;
@@ -1272,12 +1279,16 @@ interface WebhookSubscription {
 **Validation Rules**:
 
 - `callbackUrl` must be HTTPS
-- `hmacSecret` minimum 32 characters
+- `secret` is a Standard Webhooks `whsec_` value: the literal prefix `whsec_` followed by base64 of 24-64 random bytes (client-supplied, one per subscription)
 - `expiresAt` must be in the future at creation time
 - TTL default: 30 minutes (configurable)
 - `serverEndpoint` must reference a known MCP server
 - `customerId` must reference an existing customer in CustomerConfig table
 - Each customer should have exactly 2 active subscriptions (one per server)
+
+**Secret Storage (encryption at rest)**:
+
+The `secret` field is the per-subscription `whsec_` value and MUST be encrypted at rest. It is stored as an attribute in the existing Subscriptions DynamoDB table, which uses DynamoDB default encryption at rest — so this sample relies on that table-level encryption for the secret attribute. A production system might instead store each subscription's secret in a dedicated KMS-encrypted store or in AWS Secrets Manager (one secret per subscription); for this sample the DynamoDB-attribute approach (encrypted at rest) is used for simplicity.
 
 ---
 
@@ -1380,7 +1391,10 @@ interface SubscribeParams {
   delivery: {
     mode: "webhook";
     url: string; // Callback URL for delivery
-    secret: string; // HMAC secret for signing
+    secret: string; // REQUIRED, client-supplied per-subscription Standard Webhooks
+    // secret: literal prefix "whsec_" followed by base64 of 24-64 random bytes.
+    // Generated by the Subscription Manager (the MCP client); the server never
+    // generates it. Rotated by supplying a new value on refresh.
   };
   inputSchema?: {
     // Per-customer filter params
@@ -1501,7 +1515,7 @@ _For any_ Cognito-authorized request where the JWT `sub` claim does not match th
 
 _For any_ customer configuration input, the Data API SHALL accept the input if and only if: `customerId` is valid UUID v4, `minMagnitude` is in [0, 10], `region` is one of the allowed values or undefined, `briefingPrompt` is non-empty and ≤ 2000 characters, and `briefingSchedule` is a valid cron expression. Invalid inputs SHALL receive HTTP 400.
 
-**Validates: Requirements 16.1, 16.2, 16.3, 16.4, 16.5, 16.6**
+**Validates: Requirements 16.1, 16.2, 16.3, 16.4, 16.5, 16.7**
 
 ### Property 13: Cron Schedule Evaluation
 
@@ -1537,9 +1551,9 @@ _For any_ valid `events/subscribe` request, the MCP server SHALL return a respon
 
 ### Error Scenario 4: Invalid Webhook Signature
 
-**Condition**: Webhook receiver cannot validate the Standard Webhooks HMAC signature
+**Condition**: Webhook receiver cannot validate the Standard Webhooks HMAC signature against the per-subscription secret looked up via `X-MCP-Subscription-Id`
 **Response**: Returns HTTP 401 immediately, event is not enqueued
-**Recovery**: Logged as a security event. If legitimate (secret rotation), Subscription Manager re-subscribes with updated secret.
+**Recovery**: Logged as a security event. If legitimate (per-subscription secret rotation mid-flight), the server's short dual-signing grace window covers the transition; the Subscription Manager re-subscribes with the new `delivery.secret` and persists the rotated secret on the subscription record.
 
 ### Error Scenario 5: Session State Corruption
 
@@ -1649,8 +1663,8 @@ _For any_ valid `events/subscribe` request, the MCP server SHALL return a respon
 - **IAM caller scope**: The Serverless Agent's IAM role is granted `execute-api:Invoke` on the Data API resource ARN. This is the only IAM principal allowed to call the Data API. The agent can access any customer's data (required since it processes events for all customers). The IAM role is scoped to only the Data API routes — it cannot invoke other API Gateway endpoints.
 - **CORS configuration**: API Gateway configured with CORS allowing only the CloudFront distribution origin. Credentials mode enabled for JWT bearer tokens. No wildcard origins.
 - **Frontend token handling**: JWT tokens stored in memory only (not localStorage or sessionStorage) to mitigate XSS token theft. Cognito Hosted UI redirect flow avoids exposing tokens in URLs (authorization code + PKCE).
-- **Webhook authentication**: Standard Webhooks HMAC-SHA256 signatures prevent spoofed event delivery. Each MCP server uses its own HMAC secret. Timestamp validation prevents replay attacks (5-minute tolerance window).
-- **HMAC secret management**: Webhook secrets for both servers stored in SSM Parameter Store (SecureString). Rotatable without downtime via dual-secret validation period.
+- **Webhook authentication**: Standard Webhooks HMAC-SHA256 signatures prevent spoofed event delivery. Each subscription has its own client-supplied `whsec_` secret; the receiver selects the correct secret using the `X-MCP-Subscription-Id` header before verifying. Timestamp validation prevents replay attacks (5-minute tolerance window).
+- **Webhook secret management**: Per the experimental MCP Events extension, webhook secrets are client-supplied and per-subscription. The Subscription Manager (MCP client) generates a fresh `whsec_` secret per subscription with a CSPRNG and passes it in `delivery.secret`; the MCP servers never generate secrets. Secrets are persisted on the `WebhookSubscription` record in the Subscriptions DynamoDB table, encrypted at rest via DynamoDB default encryption (a production system might use a dedicated KMS key or Secrets Manager per subscription). Rotation is performed by supplying a new secret on refresh; the server SHOULD dual-sign with the old and new secret during a short grace window to avoid downtime. There are no per-server SSM SecureString HMAC parameters.
 - **Least-privilege IAM**: Each Lambda has a dedicated role with minimal permissions. Data API Lambda can read/write S3 (reports only) and DynamoDB (Customer Config). Serverless Agent can invoke the Data API, read/write S3 (sessions bucket — direct access via Strands SDK `SessionManager`), and access DynamoDB (Subscriptions, Locks) — it cannot access the reports bucket or Customer Config DynamoDB directly. Server Lambdas can only access their own DynamoDB tables.
 - **Customer data isolation**: S3 paths are prefixed by `customerId` (`sessions/{customerId}/`, `reports/{customerId}/`). The Data API Lambda enforces path-based isolation. For Cognito callers, the `customerId` must match the JWT `sub`. For IAM callers (Serverless Agent), the agent only accesses the customer resolved from the subscription lookup.
 - **Subscription-to-customer integrity**: The mapping from `subscriptionId` to `customerId` is stored in DynamoDB and is the sole source of truth for routing. Tampering with the `X-MCP-Subscription-Id` header cannot escalate access because the subscription record determines the customer, not the event payload.

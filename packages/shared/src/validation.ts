@@ -19,6 +19,10 @@ import {
   MIN_MAGNITUDE,
   REGIONS,
   UUID_V4_REGEX,
+  WHSEC_SECRET_MAX_BYTES,
+  WHSEC_SECRET_MIN_BYTES,
+  WHSEC_SECRET_PREFIX,
+  WHSEC_SECRET_REGEX,
 } from "./constants.js";
 
 // ---------------------------------------------------------------------------
@@ -44,6 +48,34 @@ export const cronExpressionSchema = z
 
 /** Region enum. Validates Requirement 16.3. */
 export const regionSchema = z.enum(REGIONS);
+
+/**
+ * Per-subscription Standard Webhooks signing secret. Validates Requirement
+ * 16.6: the literal prefix `whsec_` followed by base64 of 24-64 random bytes.
+ * The regex checks the structural shape; the refinement decodes the base64 body
+ * and enforces the 24-64 byte length bound.
+ */
+export const whsecSecretSchema = z
+  .string()
+  .regex(WHSEC_SECRET_REGEX, "must be a Standard Webhooks whsec_ secret")
+  .refine(
+    (s) => {
+      const body = s.slice(WHSEC_SECRET_PREFIX.length);
+      let byteLength: number;
+      try {
+        byteLength = Buffer.from(body, "base64").length;
+      } catch {
+        return false;
+      }
+      return (
+        byteLength >= WHSEC_SECRET_MIN_BYTES &&
+        byteLength <= WHSEC_SECRET_MAX_BYTES
+      );
+    },
+    {
+      message: `whsec_ secret must decode to ${WHSEC_SECRET_MIN_BYTES}-${WHSEC_SECRET_MAX_BYTES} bytes`,
+    },
+  );
 
 // ---------------------------------------------------------------------------
 // Customer configuration
@@ -155,7 +187,7 @@ export const subscribeParamsSchema = z.object({
       .refine((u) => u.startsWith("https://"), {
         message: "callback URL must use HTTPS",
       }),
-    secret: z.string().min(32, "HMAC secret must be at least 32 characters"),
+    secret: whsecSecretSchema,
   }),
   inputSchema: subscribeInputSchema.optional(),
   ttl: z.number().int().positive().optional(),
@@ -179,7 +211,7 @@ export const webhookSubscriptionSchema = z.object({
     EVENT_NAME_BRIEFING_TRIGGER,
   ]),
   callbackUrl: z.string().url(),
-  hmacSecret: z.string().min(32),
+  secret: whsecSecretSchema,
   filterParams: subscriptionParamsSchema.optional(),
   schedule: cronExpressionSchema.optional(),
   createdAt: isoDateTimeSchema,

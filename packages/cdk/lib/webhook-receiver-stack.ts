@@ -3,16 +3,14 @@ import * as cdk from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as iam from "aws-cdk-lib/aws-iam";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53targets from "aws-cdk-lib/aws-route53-targets";
 import * as sqs from "aws-cdk-lib/aws-sqs";
-import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
-import { SCHEDULER_HMAC_SECRET_PARAMETER_NAME } from "./scheduler-server-stack.js";
 import { resolveDomainName, type SharedProps } from "./shared-props.js";
-import { USGS_HMAC_SECRET_PARAMETER_NAME } from "./usgs-server-stack.js";
 
 export type WebhookReceiverStackProps = cdk.StackProps & SharedProps;
 
@@ -37,16 +35,23 @@ export type WebhookReceiverStackProps = cdk.StackProps & SharedProps;
  *
  * AUTHORIZATION NOTE: The webhook endpoint is intentionally open (no IAM or
  * Cognito authorizer). MCP servers authenticate each delivery with a Standard
- * Webhooks HMAC-SHA256 signature rather than IAM, and the Lambda handler
- * (subtask 5.4) validates that signature against the per-server SSM secrets
- * before enqueueing anything (Requirements 3.1, 17.1). The handler reads both
- * MCP server secrets so it can verify deliveries from either server.
+ * Webhooks HMAC-SHA256 signature rather than IAM. Per the MCP Events extension,
+ * the signing secret is client-supplied per subscription, so the Lambda handler
+ * (subtask 5.4) does NOT hold per-server secrets. Instead, for each delivery it
+ * reads the `X-MCP-Subscription-Id` header, looks up that subscription's secret
+ * via the Data API (`GET /subscriptions/{subscriptionId}`, IAM SigV4 signed),
+ * and validates the Standard Webhooks signature against the per-subscription
+ * secret before enqueueing anything (Requirements 3.1, 17.1). The per-delivery
+ * lookup is well within the latency budget (Requirement 19.2).
  *
  * Cross-stack wiring follows the design's CfnOutput / Fn.importValue approach
  * (same pattern as DataApiStack) so this stack stays environment agnostic:
  * imports the wildcard certificate ARN and subdomain hosted zone from DnsStack.
- * The queue ARN/URL are exported so AgentStack (which owns the agent Lambda)
- * can attach the queue as its SQS event source.
+ * The Data API custom-domain URL is deterministic, so it is passed as an
+ * environment variable rather than a cross-stack import to avoid a synth-time
+ * ordering dependency (same approach the MCP server stacks use for the webhook
+ * URL). The queue ARN/URL are exported so AgentStack (which owns the agent
+ * Lambda) can attach the queue as its SQS event source.
  *
  * HANDLER NOTE: The Lambda handler lives in the @mcp-events/webhook-receiver
  * package (subtask 5.4 creates src/handler.ts). It is not implemented yet, so
@@ -60,6 +65,12 @@ export class WebhookReceiverStack extends cdk.Stack {
 
     const domainName = resolveDomainName(props);
     const webhookDomainName = `webhook.${domainName}`;
+    // The Data API lives at a deterministic custom domain created by
+    // DataApiStack. The handler resolves each delivery's per-subscription secret
+    // by calling GET /subscriptions/{subscriptionId} with IAM SigV4; pass the
+    // URL as an environment variable rather than a cross-stack import to avoid a
+    // synth-time ordering dependency.
+    const dataApiUrl = `https://api.${domainName}`;
 
     // --- SQS: dead-letter queue + main event queue --------------------------
     // Standard (not FIFO) queues so events for different customers process
@@ -101,21 +112,10 @@ export class WebhookReceiverStack extends cdk.Stack {
     });
 
     // --- SSM SecureString secrets for signature validation ------------------
-    // The handler verifies each delivery's Standard Webhooks signature against
-    // the originating server's secret. Both MCP server secrets are referenced
-    // by their deterministic parameter names and read at runtime.
-    const usgsHmacSecret =
-      ssm.StringParameter.fromSecureStringParameterAttributes(
-        this,
-        "UsgsHmacSecretParameter",
-        { parameterName: USGS_HMAC_SECRET_PARAMETER_NAME },
-      );
-    const schedulerHmacSecret =
-      ssm.StringParameter.fromSecureStringParameterAttributes(
-        this,
-        "SchedulerHmacSecretParameter",
-        { parameterName: SCHEDULER_HMAC_SECRET_PARAMETER_NAME },
-      );
+    // (Removed.) Per the MCP Events extension the signing secret is
+    // client-supplied per subscription, so there are no per-server SSM secrets.
+    // The handler resolves each delivery's secret at runtime via the Data API
+    // (see the AUTHORIZATION NOTE above).
 
     // --- Lambda handler -------------------------------------------------------
     // Compiled stack lives at packages/cdk/dist/lib, so walk up to the repo's
@@ -147,15 +147,30 @@ export class WebhookReceiverStack extends cdk.Stack {
       ),
       environment: {
         EVENT_QUEUE_URL: eventQueue.queueUrl,
-        USGS_HMAC_SECRET_PARAMETER_NAME,
-        SCHEDULER_HMAC_SECRET_PARAMETER_NAME,
+        DATA_API_URL: dataApiUrl,
       },
     });
 
     // --- IAM grants (least privilege) ----------------------------------------
     eventQueue.grantSendMessages(handlerFn);
-    usgsHmacSecret.grantRead(handlerFn);
-    schedulerHmacSecret.grantRead(handlerFn);
+
+    // execute-api:Invoke on the Data API so the handler can resolve each
+    // delivery's per-subscription secret via GET /subscriptions/{subscriptionId}
+    // with IAM SigV4. DataApiStack is created separately and does not export its
+    // API id, so scope the grant to this account/region's execute-api namespace
+    // (same approach as DataApiStack, AgentStack, and SubscriptionManagerStack).
+    handlerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["execute-api:Invoke"],
+        resources: [
+          cdk.Stack.of(this).formatArn({
+            service: "execute-api",
+            resource: "*",
+            arnFormat: cdk.ArnFormat.NO_RESOURCE_NAME,
+          }),
+        ],
+      }),
+    );
 
     // --- API Gateway custom domain + REST API (open endpoint) ----------------
     const certificate = acm.Certificate.fromCertificateArn(

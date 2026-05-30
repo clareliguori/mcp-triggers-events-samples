@@ -9,21 +9,16 @@ import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53targets from "aws-cdk-lib/aws-route53-targets";
-import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { resolveDomainName, type SharedProps } from "./shared-props.js";
 
 export type UsgsServerStackProps = cdk.StackProps & SharedProps;
 
-/** SSM parameter name that holds MCP Server 1's webhook HMAC secret. */
-export const USGS_HMAC_SECRET_PARAMETER_NAME =
-  "/earthquake-agent/usgs-server/hmac-secret";
-
 /**
  * MCP Server 1 (USGS Earthquake Feed) stack for the MCP Events Serverless
  * Agent sample.
  *
- * Responsibilities (Requirements 1.x, 13.4, 13.5, 14.x, 17.5, 17.6):
+ * Responsibilities (Requirements 1.x, 13.4, 13.5, 14.x, 17.6):
  * - API Gateway REST API at the custom domain
  *   `usgs-mcp.<subdomain>.<parentDomain>` (for example
  *   `usgs-mcp.earthquake-agent.liguori.people.aws.dev`). The MCP HTTP transport
@@ -35,25 +30,19 @@ export const USGS_HMAC_SECRET_PARAMETER_NAME =
  * - DynamoDB tables: Cursor State (shared, single-row cursor for feed
  *   deduplication) and Subscriptions (per-customer webhook subscriptions
  *   managed by the MCP server).
- * - An SSM SecureString that stores the Standard Webhooks HMAC secret used to
- *   sign webhook deliveries (Requirement 17.5).
  *
  * Cross-stack wiring follows the design's CfnOutput / Fn.importValue approach
  * (same pattern as DataApiStack) so this stack stays environment agnostic:
  * imports the wildcard certificate ARN and subdomain hosted zone from DnsStack.
  *
- * HMAC SECRET NOTE (Requirement 17.5): CloudFormation cannot create an SSM
- * parameter of type SecureString with a value (the CDK L2 `StringParameter`
- * rejects `SECURE_STRING` for new values, and `CfnParameter`/`AWS::SSM::Parameter`
- * does not support `SecureString` either). The documented, compliant pattern is
- * therefore to reference an existing SecureString by name with
- * `ssm.StringParameter.fromSecureStringParameterAttributes`, grant the Lambda
- * read access, and populate the secret value out of band (a one-time
- * `aws ssm put-parameter --type SecureString --name <name>` during deployment
- * setup, or a rotation job). The parameter name is deterministic
- * ({@link USGS_HMAC_SECRET_PARAMETER_NAME}) and exported so the deploy step and
- * the Webhook Receiver can resolve it. This keeps the secret encrypted at rest
- * in SSM as the requirement demands while remaining synthesizable.
+ * WEBHOOK SECRET NOTE (Requirements 14.3, 17.5): Per the MCP Events extension,
+ * the Standard Webhooks signing secret is client-supplied per subscription. The
+ * Subscription Manager generates a `whsec_` secret per subscription and passes
+ * it in `delivery.secret` on `events/subscribe`; this server stores that secret
+ * on the subscription's record in the Subscriptions table (encrypted at rest
+ * via DynamoDB default encryption) and signs that subscription's webhook
+ * deliveries with it. The server never generates a secret, so there is no
+ * per-server SSM SecureString parameter.
  *
  * HANDLER NOTE: The Lambda handler lives in the @mcp-events/usgs-server package
  * (subtask 6.5 creates src/handler.ts). It is not implemented yet, so the
@@ -100,16 +89,6 @@ export class UsgsServerStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    // --- SSM SecureString: Standard Webhooks HMAC secret ---------------------
-    // Referenced by name (see HMAC SECRET NOTE above); the value is populated
-    // out of band. The Lambda reads it at runtime to sign webhook deliveries.
-    const hmacSecretParameter =
-      ssm.StringParameter.fromSecureStringParameterAttributes(
-        this,
-        "HmacSecretParameter",
-        { parameterName: USGS_HMAC_SECRET_PARAMETER_NAME },
-      );
-
     // --- Lambda handler -------------------------------------------------------
     // Compiled stack lives at packages/cdk/dist/lib, so walk up to the repo's
     // packages/ directory to reach the usgs-server source and up to the repo
@@ -138,7 +117,6 @@ export class UsgsServerStack extends cdk.Stack {
       environment: {
         CURSOR_STATE_TABLE_NAME: cursorStateTable.tableName,
         SUBSCRIPTIONS_TABLE_NAME: subscriptionsTable.tableName,
-        HMAC_SECRET_PARAMETER_NAME: USGS_HMAC_SECRET_PARAMETER_NAME,
         WEBHOOK_URL: webhookUrl,
         USGS_FEED_URL:
           "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson",
@@ -148,7 +126,6 @@ export class UsgsServerStack extends cdk.Stack {
     // --- IAM grants (least privilege) ----------------------------------------
     cursorStateTable.grantReadWriteData(handlerFn);
     subscriptionsTable.grantReadWriteData(handlerFn);
-    hmacSecretParameter.grantRead(handlerFn);
 
     // --- EventBridge: poll the USGS feed every 5 minutes ---------------------
     new events.Rule(this, "PollSchedule", {
@@ -230,13 +207,6 @@ export class UsgsServerStack extends cdk.Stack {
       value: `https://${mcpDomainName}`,
       description: "Custom domain URL of the MCP Server 1 (USGS) API",
       exportName: "EarthquakeAgent-UsgsMcpCustomDomainUrl",
-    });
-
-    new cdk.CfnOutput(this, "UsgsHmacSecretParameterName", {
-      value: USGS_HMAC_SECRET_PARAMETER_NAME,
-      description:
-        "SSM SecureString parameter name holding MCP Server 1's webhook HMAC secret (populate out of band)",
-      exportName: "EarthquakeAgent-UsgsHmacSecretParameterName",
     });
   }
 }

@@ -18,11 +18,13 @@ This implementation plan breaks the multi-stack CDK application into incremental
 
   - [x] 1.2 Define shared TypeScript interfaces and data models
     - Create `packages/shared/src/models.ts` with all data model interfaces: `CustomerConfig`, `McpEventPayload`, `EarthquakeDetectedData`, `BriefingTriggerData`, `CustomerSessionLock`, `WebhookSubscription`, `AgentSessionState`, `BriefingReport`, `NotableQuake`, `SubscribeParams`, `SubscribeResult`, `UsgsCursorState`, `ReportSummary`
-    - Create `packages/shared/src/validation.ts` with zod schemas for all models (CustomerConfig input validation, event payload validation, subscription params validation)
+    - `WebhookSubscription` includes a `secret` field holding the per-subscription Standard Webhooks `whsec_` value used to sign that subscription's deliveries; `SubscribeParams` includes a required client-supplied `delivery.secret` (the `whsec_` value) carried on `events/subscribe`
+    - Create `packages/shared/src/validation.ts` with zod schemas for all models (CustomerConfig input validation, event payload validation, subscription params validation including the required `delivery.secret` in `whsec_` format)
     - Create `packages/shared/src/constants.ts` with shared constants (region list, magnitude bounds, cron validation regex, TTL defaults)
     - Export all types and schemas from `packages/shared/src/index.ts`
     - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6_
     - _Validation: `npx tsc --noEmit` compiles without errors; import the types in a test file and verify they're accessible_
+    - _(Updated: webhook secrets are now per-subscription and client-supplied; see tasks 5.x/6.5/7.3/10.1)_
 
   - [x] 1.3 Write property test for input validation (Property 12)
     - **Property 12: Input Validation Correctness**
@@ -55,20 +57,24 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx cdk synth DataApiStack` produces valid CloudFormation template; template contains AWS::ApiGateway::RestApi, AWS::Lambda::Function, AWS::DynamoDB::Table, and AWS::S3::Bucket resources_
 
   - [x] 2.4 Implement UsgsServerStack and SchedulerServerStack
-    - Create `packages/cdk/lib/usgs-server-stack.ts` with API Gateway (IAM auth, custom domain `usgs-mcp.earthquake-agent.<parentDomain>`), Lambda, DynamoDB tables (Cursor State, Subscriptions), EventBridge rule (every 5 min), SSM SecureString for HMAC secret
-    - Create `packages/cdk/lib/scheduler-server-stack.ts` with API Gateway (IAM auth, custom domain `scheduler-mcp.earthquake-agent.<parentDomain>`), Lambda, DynamoDB table (Subscriptions), EventBridge rule (every 1 min), SSM SecureString for HMAC secret
+    - Create `packages/cdk/lib/usgs-server-stack.ts` with API Gateway (IAM auth, custom domain `usgs-mcp.earthquake-agent.<parentDomain>`), Lambda, DynamoDB tables (Cursor State, Subscriptions), EventBridge rule (every 5 min)
+    - Create `packages/cdk/lib/scheduler-server-stack.ts` with API Gateway (IAM auth, custom domain `scheduler-mcp.earthquake-agent.<parentDomain>`), Lambda, DynamoDB table (Subscriptions), EventBridge rule (every 1 min)
+    - These stacks do NOT create a per-server SSM SecureString HMAC secret; the webhook signing secret is now per-subscription and client-supplied, persisted on each `WebhookSubscription` record in the Subscriptions table (encrypted at rest via DynamoDB default encryption)
     - Export API URLs via CfnOutput
     - _Requirements: 13.4, 13.5, 17.5, 17.6_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx cdk synth UsgsServerStack SchedulerServerStack` produces valid CloudFormation templates; templates contain AWS::ApiGateway::RestApi, AWS::Lambda::Function, AWS::DynamoDB::Table, and AWS::Events::Rule resources_
+    - _(Updated: webhook secrets are now per-subscription and client-supplied; the per-server SSM SecureString is removed. CDK code change handled separately; see tasks 5.x/6.5/7.3/10.1)_
 
   - [x] 2.5 Implement WebhookReceiverStack, AgentStack, SubscriptionManagerStack, and WebappStack
     - Create `packages/cdk/lib/webhook-receiver-stack.ts` with API Gateway (custom domain `webhook.earthquake-agent.<parentDomain>`), Lambda, SQS queue + DLQ, CloudWatch alarm on DLQ depth
+    - The Webhook Receiver Lambda does NOT read per-server HMAC SSM secrets; it selects the per-subscription secret for each delivery by looking it up from the Subscriptions table via the Data API, keyed by the `X-MCP-Subscription-Id` header (grant the receiver the necessary read access)
     - Create `packages/cdk/lib/agent-stack.ts` with Lambda (SQS trigger, batch size 1), S3 sessions bucket, DynamoDB session locks table, IAM role with execute-api:Invoke on Data API
     - Export sessions bucket ARN via CfnOutput for cross-stack read-only access by DataApiStack
     - Create `packages/cdk/lib/subscription-manager-stack.ts` with Lambda (dual triggers: DynamoDB Stream from CustomerConfig + EventBridge every 5 min), IAM role with execute-api:Invoke on MCP server API Gateways and Data API
     - Create `packages/cdk/lib/webapp-stack.ts` with S3 bucket, CloudFront distribution (custom domain `app.earthquake-agent.<parentDomain>`, OAC), response headers policy
     - _Requirements: 13.1, 13.4, 13.5, 17.3, 17.4, 18.2, 19.4, 19.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx cdk synth WebhookReceiverStack AgentStack SubscriptionManagerStack WebappStack` produces valid CloudFormation templates; templates contain expected resources (SQS, Lambda, S3, CloudFront)_
+    - _(Updated: webhook secrets are now per-subscription and client-supplied; the Webhook Receiver selects the secret per delivery via the Subscriptions table / Data API keyed by `X-MCP-Subscription-Id`; see tasks 5.x/6.5/7.3/10.1)_
 
 - [x] 3. Checkpoint — Verify CDK synth
   - Ensure `cdk synth` succeeds for all stacks, ask the user if questions arise.
@@ -125,7 +131,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
   - [ ] 5.1 Implement Standard Webhooks signature validation library
     - Create `packages/webhook-receiver/src/signature.ts` with HMAC-SHA256 signing and verification functions
     - Implement timestamp tolerance check (5-minute window)
-    - Support multiple server secrets (one per MCP server)
+    - Look up and verify against the per-subscription secret selected by the `X-MCP-Subscription-Id` header (rather than a per-server secret)
     - Use the `standard-webhooks` npm package for compliance
     - _Requirements: 3.1, 3.2, 3.3, 17.1_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/webhook-receiver/src/signature.ts`_
@@ -144,9 +150,9 @@ This implementation plan breaks the multi-stack CDK application into incremental
 
   - [ ] 5.4 Implement Webhook Receiver Lambda handler
     - Create `packages/webhook-receiver/src/handler.ts` with API Gateway proxy event handler
-    - Validate Standard Webhooks signature using the signature library
-    - Extract `X-MCP-Subscription-Id` header
-    - Enqueue validated event to SQS with `subscriptionId` as message attribute
+    - Extract the `X-MCP-Subscription-Id` header and look up that subscription's secret (via the Data API / Subscriptions table)
+    - Validate the Standard Webhooks signature against the per-subscription secret using the signature library
+    - Enqueue the validated event to SQS with `subscriptionId` as message attribute
     - Return 200 on success, 401 on invalid signature, 400 on missing headers
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 19.2_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/webhook-receiver/src/handler.ts`_
@@ -182,7 +188,8 @@ This implementation plan breaks the multi-stack CDK application into incremental
   - [ ] 6.5 Implement MCP Server 1 Lambda handler with webhook delivery
     - Create `packages/usgs-server/src/handler.ts` with dual-trigger handler (EventBridge for polling, API Gateway for MCP protocol)
     - Implement `events/list`, `events/subscribe`, `events/unsubscribe` MCP methods
-    - Deliver filtered earthquakes via HTTP POST with Standard Webhooks signatures and `X-MCP-Subscription-Id` header
+    - On `events/subscribe`, store the client-supplied `delivery.secret` (the `whsec_` value) on the subscription record; the server does NOT generate or own a per-server secret
+    - Deliver filtered earthquakes via HTTP POST with Standard Webhooks signatures computed using that subscription's stored secret, plus the `X-MCP-Subscription-Id` header
     - Implement retry with exponential backoff (3 attempts: 1s/5s/30s)
     - Manage subscription lifecycle (create, refresh, expire) in DynamoDB
     - _Requirements: 1.3, 14.1, 14.3, 14.4, 14.5, 15.1_
@@ -204,8 +211,9 @@ This implementation plan breaks the multi-stack CDK application into incremental
   - [ ] 7.3 Implement MCP Server 2 Lambda handler with webhook delivery
     - Create `packages/scheduler-server/src/handler.ts` with dual-trigger handler (EventBridge for schedule check, API Gateway for MCP protocol + manual trigger)
     - Implement `events/list`, `events/subscribe`, `events/unsubscribe` MCP methods
+    - On `events/subscribe`, store the client-supplied `delivery.secret` (the `whsec_` value) on the subscription record; the server does NOT generate or own a per-server secret
     - Implement manual trigger endpoint (`POST /trigger-briefing/:customerId`)
-    - Deliver `briefing.trigger` events via HTTP POST with Standard Webhooks signatures and `X-MCP-Subscription-Id` header
+    - Deliver `briefing.trigger` events via HTTP POST with Standard Webhooks signatures computed using that subscription's stored secret, plus the `X-MCP-Subscription-Id` header
     - _Requirements: 2.2, 2.4, 14.2, 14.3, 14.4, 14.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/scheduler-server/src/handler.ts`_
 
@@ -292,9 +300,10 @@ This implementation plan breaks the multi-stack CDK application into incremental
   - [ ] 10.1 Implement subscription creation for new customers
     - Create `packages/subscription-manager/src/register.ts` with customer registration logic
     - Parse DynamoDB Stream INSERT events to detect new customers
-    - Call MCP Server 1 `events/subscribe` with customer's filter params via StreamableHTTPClientWithSigV4Transport
-    - Call MCP Server 2 `events/subscribe` with customer's cron schedule
-    - Store WebhookSubscription records via Data API
+    - Generate a fresh per-subscription Standard Webhooks secret (CSPRNG; `whsec_` + base64 of 24-64 random bytes) for each subscription
+    - Call MCP Server 1 `events/subscribe` with customer's filter params and the generated secret in `delivery.secret` via StreamableHTTPClientWithSigV4Transport
+    - Call MCP Server 2 `events/subscribe` with customer's cron schedule and its own generated `delivery.secret`
+    - Store WebhookSubscription records (including the per-subscription `secret`) via Data API
     - Handle partial failures (one server succeeds, other fails) with retry
     - _Requirements: 8.1, 8.3, 14.6_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/subscription-manager/src/register.ts`_
@@ -304,6 +313,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - Query Data API for all active customers and their subscriptions
     - Identify subscriptions expiring within threshold period
     - Refresh via MCP `events/subscribe` on appropriate server
+    - Optionally rotate the per-subscription secret by generating a new `whsec_` value, supplying it in `delivery.secret` on refresh, and updating the stored secret on the WebhookSubscription record
     - Update subscription records with new `expiresAt` and `lastRefreshedAt`
     - Detect and re-create missing subscriptions for active customers
     - Log failures at per-customer granularity

@@ -100,7 +100,7 @@ describe("@mcp-events/shared exports", () => {
       serverEndpoint: "https://server.example.com/mcp",
       eventName: EVENT_NAME_BRIEFING_TRIGGER,
       callbackUrl: "https://webhook.example.com/wh",
-      hmacSecret: "x".repeat(32),
+      secret: `whsec_${"A".repeat(43)}=`,
       schedule: "0 0 * * *",
       createdAt: "2024-01-01T00:00:00Z",
       expiresAt: "2024-01-01T01:00:00Z",
@@ -317,29 +317,22 @@ describe("@mcp-events/shared exports", () => {
     expect(result.success).toBe(false);
   });
 
-  it("subscribeParamsSchema requires HTTPS callback URL and 32-char secret", () => {
+  it("subscribeParamsSchema requires HTTPS callback URL and a valid whsec_ secret", () => {
+    const validSecret = `whsec_${"A".repeat(43)}=`; // decodes to 32 bytes
+
+    // Rejects non-HTTPS callback URL.
     expect(
       subscribeParamsSchema.safeParse({
         event: "earthquake.detected",
         delivery: {
           mode: "webhook",
           url: "http://insecure.example.com/wh",
-          secret: "x".repeat(32),
+          secret: validSecret,
         },
       }).success,
     ).toBe(false);
 
-    expect(
-      subscribeParamsSchema.safeParse({
-        event: "earthquake.detected",
-        delivery: {
-          mode: "webhook",
-          url: "https://example.com/wh",
-          secret: "short",
-        },
-      }).success,
-    ).toBe(false);
-
+    // Rejects a secret without the whsec_ prefix.
     expect(
       subscribeParamsSchema.safeParse({
         event: "earthquake.detected",
@@ -347,6 +340,30 @@ describe("@mcp-events/shared exports", () => {
           mode: "webhook",
           url: "https://example.com/wh",
           secret: "x".repeat(32),
+        },
+      }).success,
+    ).toBe(false);
+
+    // Rejects a whsec_ secret that decodes to fewer than 24 bytes.
+    expect(
+      subscribeParamsSchema.safeParse({
+        event: "earthquake.detected",
+        delivery: {
+          mode: "webhook",
+          url: "https://example.com/wh",
+          secret: "whsec_c2hvcnQ=", // "short" -> 5 bytes
+        },
+      }).success,
+    ).toBe(false);
+
+    // Accepts a valid HTTPS URL and a valid whsec_ secret.
+    expect(
+      subscribeParamsSchema.safeParse({
+        event: "earthquake.detected",
+        delivery: {
+          mode: "webhook",
+          url: "https://example.com/wh",
+          secret: validSecret,
         },
       }).success,
     ).toBe(true);
