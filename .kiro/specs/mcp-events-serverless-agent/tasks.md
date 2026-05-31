@@ -330,13 +330,13 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 8.2, 8.4, 8.5, 15.3_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/subscription-manager/src/refresh.ts`_
 
-  - [ ] 10.3 Write property test for subscription expiry detection (Property 10)
+  - [x] 10.3 Write property test for subscription expiry detection (Property 10)
     - **Property 10: Subscription Expiry Detection and Refresh**
     - Generate arbitrary sets of subscriptions with various expiry times, verify all expiring within threshold are identified; verify missing subscriptions for active customers are detected
     - **Validates: Requirements 8.2, 8.5, 15.3**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [ ] 10.4 Implement Subscription Manager Lambda handler
+  - [-] 10.4 Implement Subscription Manager Lambda handler
     - Create `packages/subscription-manager/src/handler.ts` with dual-trigger handler (DynamoDB Stream + EventBridge)
     - Detect trigger source and route to registration or refresh logic
     - Wire MCP client connections using `@aws/run-mcp-servers-with-aws-lambda` StreamableHTTPClientWithSigV4Transport
