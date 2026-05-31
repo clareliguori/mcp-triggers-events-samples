@@ -306,8 +306,8 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 4.1, 4.2, 4.3, 4.7, 6.3, 15.2, 15.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/agent/src/handler.ts`_
 
-- [ ] 10. Subscription Manager
-  - [ ] 10.1 Implement subscription creation for new customers
+- [-] 10. Subscription Manager
+  - [-] 10.1 Implement subscription creation for new customers
     - Create `packages/subscription-manager/src/register.ts` with customer registration logic
     - Parse DynamoDB Stream INSERT events to detect new customers
     - Generate a fresh per-subscription Standard Webhooks secret (CSPRNG; `whsec_` + base64 of 24-64 random bytes) for each subscription
@@ -318,7 +318,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 8.1, 8.3, 14.6_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/subscription-manager/src/register.ts`_
 
-  - [ ] 10.2 Implement subscription refresh logic
+  - [x] 10.2 Implement subscription refresh logic
     - Create `packages/subscription-manager/src/refresh.ts` with scheduled refresh logic
     - Query Data API for all active customers and their subscriptions
     - Identify subscriptions expiring within threshold period

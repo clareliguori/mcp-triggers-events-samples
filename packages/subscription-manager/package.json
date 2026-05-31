@@ -2,6 +2,7 @@
   "name": "@mcp-events/subscription-manager",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "description": "Subscription Manager Lambda — creates and refreshes per-customer webhook subscriptions",
   "main": "dist/handler.js",
   "scripts": {
