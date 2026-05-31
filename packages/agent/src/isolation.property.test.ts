@@ -4,10 +4,11 @@
  * **Property 7: Customer Isolation**
  *
  * _For any_ event `e` with subscription mapping to customer `C_a`, the only
- * session file read or written during processing SHALL be
- * `sessions/{C_a}/session.json`. No other customer's session SHALL be accessed,
- * and no earthquakes from customer `C_a`'s session SHALL appear in any other
- * customer's briefing report.
+ * session objects read or written during processing SHALL be under the
+ * `sessions/{C_a}/` prefix (the SDK snapshot layout
+ * `sessions/{C_a}/scopes/agent/agent/snapshots/...`). No other customer's
+ * session SHALL be accessed, and no earthquakes from customer `C_a`'s session
+ * SHALL appear in any other customer's briefing report.
  *
  * **Validates: Requirements 5.1, 5.2**
  *
@@ -15,9 +16,10 @@
  *
  * These tests drive the REAL agent pipeline — `processEarthquakeEvent` and
  * `processBriefingEvent` (tasks 9.4 / 9.8) running the genuine Strands
- * {@link Agent} + {@link SessionManager} + {@link S3SnapshotStorage} — against
+ * {@link Agent} + {@link SessionManager} + the SDK's {@link S3Storage} — against
  * an **in-memory, key-addressed S3 mock** that persists each customer's session
- * object (`sessions/{customerId}/session.json`) independently, mirroring the
+ * object (`sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`)
+ * independently, mirroring the
  * mocking approach in `accumulate.test.ts` and `lock.integration.test.ts`. The
  * LLM is a deterministic fake ({@link FakeModel} for analysis,
  * {@link ToolCallingModel} for briefing synthesis) so no AWS or Bedrock access
@@ -110,9 +112,9 @@ function custId(index: number): string {
   return `000000${hex}-0000-4000-8000-000000000000`;
 }
 
-/** The S3 key for a customer's session snapshot. */
+/** The S3 key for a customer's session snapshot (SDK latest-snapshot key). */
 function sessionKey(customerId: string): string {
-  return `sessions/${customerId}/session.json`;
+  return `sessions/${customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`;
 }
 
 /** A minimal CustomerConfig for a generated customer. */
@@ -293,7 +295,8 @@ interface FreshS3 {
 
 /**
  * Reset the shared S3 mock and wire it to a fresh in-memory store keyed purely
- * by object Key, so each customer's `sessions/{id}/session.json` lives at its
+ * by object Key, so each customer's
+ * `sessions/{id}/scopes/agent/agent/snapshots/snapshot_latest.json` lives at its
  * own address and never collides with another's. Returns the store and a
  * `touchedKeys` recorder used to assert per-event key isolation.
  */

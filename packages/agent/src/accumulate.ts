@@ -6,8 +6,10 @@
  * module:
  *
  * 1. Restores the customer's session from S3 (Strands SDK `SessionManager`
- *    backed by an S3 {@link SnapshotStorage}, sessionId = customerId, persisted
- *    at `sessions/{customerId}/session.json`) — Requirement 4.3/4.4.
+ *    backed by the SDK's own {@link S3Storage}, sessionId = customerId,
+ *    persisted at the SDK snapshot key
+ *    `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`)
+ *    — Requirement 4.3/4.4.
  * 2. Performs an **idempotency check**: if the event's `eventId` is already in
  *    the session metadata, processing is skipped and success is returned so a
  *    duplicate SQS delivery never adds the same earthquake twice
@@ -19,18 +21,20 @@
  *    response) and updated metadata back to S3 via the `SessionManager`
  *    (explicit save after a successful invocation) — Requirement 4.4.
  *
- * ## SDK API note (design vs. installed SDK)
+ * ## SDK persistence note
  *
- * design.md (Component 4) assumes a `SessionManager` + `S3Storage` pair
- * exported by `@strands-agents/sdk`. The installed SDK (v1.3.0) does NOT export
- * an `S3Storage` class — persistence is snapshot-based through a pluggable
- * {@link SnapshotStorage} interface, with only a `FileStorage` implementation
- * shipped. This module therefore provides {@link S3SnapshotStorage}, a faithful
- * S3-backed `SnapshotStorage` that maps the mutable "latest" snapshot to the
- * `sessions/{customerId}/session.json` key the design and the Data API session
- * reader (task 4.6) expect. The persisted object is the SDK `Snapshot` shape
- * (`{ data: { messages, state, ... } }`), which the Data API reader already
- * understands (it reads `data.messages`).
+ * Persistence uses the SDK's official {@link S3Storage} (imported from the
+ * `@strands-agents/sdk/session/s3-storage` subpath — it is not re-exported from
+ * the package root). It is configured with `bucket = SESSIONS_BUCKET_NAME`,
+ * `prefix = "sessions"`, and the shared {@link getS3Client} so the test seam
+ * keeps working. The `SessionManager` sets `scope = "agent"` and
+ * `scopeId = agent.id`; the agent is constructed without an explicit `id`, so
+ * `agent.id` defaults to `"agent"`. With `sessionId = customerId` the canonical
+ * "latest" snapshot therefore lives at the SDK key
+ * `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`
+ * (see {@link sessionSnapshotKey}). The persisted object is the SDK `Snapshot`
+ * shape (`{ data: { messages, state, ... } }`), which the Data API session
+ * reader (task 4.6) already understands (it reads `data.messages`).
  *
  * ## Testability
  *
@@ -39,20 +43,13 @@
  * - {@link setModelForTesting} swaps the Bedrock model for a fake so unit tests
  *   never call a real LLM, and
  * - {@link setS3ClientForTesting} swaps the S3 client so the real
- *   `Agent` + `SessionManager` + {@link S3SnapshotStorage} run against a mocked
- *   bucket.
+ *   `Agent` + `SessionManager` + {@link S3Storage} run against a mocked bucket.
  *
  * This lets the unit tests exercise the genuine restore -> idempotency ->
  * inject -> invoke -> persist path without AWS or model access.
  */
 
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  ListObjectsV2Command,
-  PutObjectCommand,
-  S3Client,
-} from "@aws-sdk/client-s3";
+import { S3Client } from "@aws-sdk/client-s3";
 import type {
   CustomerConfig,
   EarthquakeDetectedData,
@@ -62,15 +59,11 @@ import {
   Agent,
   BedrockModel,
   SessionManager,
-  SNAPSHOT_SCHEMA_VERSION,
   type ConversationManager,
   type Model,
-  type Snapshot,
-  type SnapshotLocation,
-  type SnapshotManifest,
-  type SnapshotStorage,
   type ToolList,
 } from "@strands-agents/sdk";
+import { S3Storage } from "@strands-agents/sdk/session/s3-storage";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -83,6 +76,22 @@ import {
  * `data.state` and therefore persisted/restored across invocations.
  */
 export const SESSION_METADATA_KEY = "sessionMetadata";
+
+/**
+ * S3 key prefix under which all session snapshots live, passed to the SDK's
+ * {@link S3Storage} as its `prefix`. The SDK composes the full object key as
+ * `<prefix>/<sessionId>/scopes/<scope>/<scopeId>/snapshots/...`.
+ */
+export const SESSION_SNAPSHOT_PREFIX = "sessions";
+
+/**
+ * The scope id the SDK `SessionManager` uses for an agent snapshot. It equals
+ * `agent.id`, which defaults to the SDK's `DEFAULT_AGENT_ID` (`"agent"`) since
+ * {@link buildAgent} constructs the `Agent` without an explicit `id`. Combined
+ * with the SDK's fixed `scope = "agent"`, this yields the
+ * `scopes/agent/agent/` segment of the snapshot key.
+ */
+export const AGENT_SCOPE_ID = "agent";
 
 /**
  * Maximum number of recently-processed event IDs retained for the idempotency
@@ -243,7 +252,7 @@ export function recordProcessedEvent(
 }
 
 // ---------------------------------------------------------------------------
-// S3-backed SnapshotStorage
+// S3 client (shared with the SDK S3Storage and the recovery path)
 // ---------------------------------------------------------------------------
 
 /** Lazily-created S3 client, reused across warm invocations. */
@@ -265,13 +274,19 @@ export function getS3Client(): S3Client {
 
 /**
  * The S3 object key holding a customer's mutable "latest" session snapshot,
- * `sessions/{customerId}/session.json`. This is the canonical session file the
- * design, the Data API session reader (task 4.6), and {@link S3SnapshotStorage}
- * all agree on. Exported so the corrupted-session recovery path (task 9.10)
- * inspects and archives exactly this object.
+ * as written by the SDK's {@link S3Storage}:
+ * `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`.
+ *
+ * The layout is composed from {@link SESSION_SNAPSHOT_PREFIX} (the storage
+ * `prefix`), the `sessionId` (= customerId), the SDK's fixed `scope` segment
+ * (`agent`), {@link AGENT_SCOPE_ID} (the agent's default id), and the SDK's
+ * fixed `snapshots/snapshot_latest.json` suffix — expressed once here so the
+ * key never drifts from what the SDK actually writes. This is the canonical
+ * session file the Data API session reader (task 4.6) and the corrupted-session
+ * recovery path (task 9.10) inspect and archive.
  */
 export function sessionSnapshotKey(customerId: string): string {
-  return `sessions/${customerId}/session.json`;
+  return `${SESSION_SNAPSHOT_PREFIX}/${customerId}/scopes/agent/${AGENT_SCOPE_ID}/snapshots/snapshot_latest.json`;
 }
 
 /**
@@ -298,186 +313,6 @@ export function isNotFoundError(error: unknown): boolean {
     return true;
   }
   return candidate.$metadata?.httpStatusCode === 404;
-}
-
-/**
- * S3-backed implementation of the Strands SDK {@link SnapshotStorage} interface.
- *
- * Key layout (per customer session, keyed purely on `sessionId` = `customerId`
- * since each customer has exactly one agent scope):
- * ```
- * sessions/<customerId>/session.json                  // mutable "latest" snapshot
- * sessions/<customerId>/history/snapshot_<id>.json     // immutable checkpoints
- * sessions/<customerId>/manifest.json                  // snapshot manifest
- * ```
- *
- * The "latest" snapshot lives at `session.json` so it matches the path the
- * design and the Data API read-only session endpoint (task 4.6) expect; the
- * agent's default `saveLatestOn: 'invocation'` strategy means this is the only
- * object written during normal earthquake processing.
- */
-export class S3SnapshotStorage implements SnapshotStorage {
-  constructor(private readonly bucket: string) {}
-
-  /** Prefix for all of a session's objects. */
-  private sessionPrefix(sessionId: string): string {
-    return `sessions/${sessionId}/`;
-  }
-
-  /** Key for the mutable "latest" snapshot (the canonical session file). */
-  private latestKey(sessionId: string): string {
-    return `${this.sessionPrefix(sessionId)}session.json`;
-  }
-
-  /** Key for an immutable checkpoint snapshot. */
-  private historyKey(sessionId: string, snapshotId: string): string {
-    return `${this.sessionPrefix(sessionId)}history/snapshot_${snapshotId}.json`;
-  }
-
-  /** Key for the snapshot manifest. */
-  private manifestKey(sessionId: string): string {
-    return `${this.sessionPrefix(sessionId)}manifest.json`;
-  }
-
-  /** Resolve the object key for a save/load, branching on latest vs. history. */
-  private snapshotKey(
-    location: SnapshotLocation,
-    snapshotId: string | undefined,
-    isLatest: boolean,
-  ): string {
-    if (isLatest || snapshotId === undefined || snapshotId === "latest") {
-      return this.latestKey(location.sessionId);
-    }
-    return this.historyKey(location.sessionId, snapshotId);
-  }
-
-  /** Read and JSON-parse an object, returning null when it does not exist. */
-  private async getJson<T>(key: string): Promise<T | null> {
-    let body: string | undefined;
-    try {
-      const result = await getS3Client().send(
-        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
-      );
-      body = await result.Body?.transformToString();
-    } catch (error) {
-      if (isNotFoundError(error)) {
-        return null;
-      }
-      throw error;
-    }
-    if (!body) {
-      return null;
-    }
-    return JSON.parse(body) as T;
-  }
-
-  /** Serialize and write an object as JSON. */
-  private async putJson(key: string, value: unknown): Promise<void> {
-    await getS3Client().send(
-      new PutObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-        Body: JSON.stringify(value),
-        ContentType: "application/json",
-      }),
-    );
-  }
-
-  async saveSnapshot(params: {
-    location: SnapshotLocation;
-    snapshotId: string;
-    isLatest: boolean;
-    snapshot: Snapshot;
-  }): Promise<void> {
-    const key = this.snapshotKey(
-      params.location,
-      params.snapshotId,
-      params.isLatest,
-    );
-    await this.putJson(key, params.snapshot);
-  }
-
-  async loadSnapshot(params: {
-    location: SnapshotLocation;
-    snapshotId?: string;
-  }): Promise<Snapshot | null> {
-    const key = this.snapshotKey(
-      params.location,
-      params.snapshotId,
-      params.snapshotId === undefined,
-    );
-    return this.getJson<Snapshot>(key);
-  }
-
-  async listSnapshotIds(params: {
-    location: SnapshotLocation;
-    limit?: number;
-    startAfter?: string;
-  }): Promise<string[]> {
-    const prefix = `${this.sessionPrefix(params.location.sessionId)}history/snapshot_`;
-    const result = await getS3Client().send(
-      new ListObjectsV2Command({
-        Bucket: this.bucket,
-        Prefix: prefix,
-        ...(params.limit !== undefined && { MaxKeys: params.limit }),
-      }),
-    );
-    const ids = (result.Contents ?? [])
-      .map((object) => object.Key)
-      .filter((key): key is string => typeof key === "string")
-      .map((key) => key.slice(prefix.length).replace(/\.json$/, ""))
-      .filter((id) => id.length > 0)
-      // Snapshot IDs are UUID v7, so lexicographic order is chronological.
-      .sort();
-    const filtered =
-      params.startAfter !== undefined
-        ? ids.filter((id) => id > params.startAfter!)
-        : ids;
-    return params.limit !== undefined
-      ? filtered.slice(0, params.limit)
-      : filtered;
-  }
-
-  async deleteSession(params: { sessionId: string }): Promise<void> {
-    const prefix = this.sessionPrefix(params.sessionId);
-    const listing = await getS3Client().send(
-      new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix }),
-    );
-    const keys = (listing.Contents ?? [])
-      .map((object) => object.Key)
-      .filter((key): key is string => typeof key === "string");
-    await Promise.all(
-      keys.map((key) =>
-        getS3Client().send(
-          new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
-        ),
-      ),
-    );
-  }
-
-  async loadManifest(params: {
-    location: SnapshotLocation;
-  }): Promise<SnapshotManifest> {
-    const manifest = await this.getJson<SnapshotManifest>(
-      this.manifestKey(params.location.sessionId),
-    );
-    return (
-      manifest ?? {
-        schemaVersion: SNAPSHOT_SCHEMA_VERSION,
-        updatedAt: new Date().toISOString(),
-      }
-    );
-  }
-
-  async saveManifest(params: {
-    location: SnapshotLocation;
-    manifest: SnapshotManifest;
-  }): Promise<void> {
-    await this.putJson(
-      this.manifestKey(params.location.sessionId),
-      params.manifest,
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -528,9 +363,10 @@ export interface BuildAgentOptions {
 
 /**
  * Build a Strands {@link Agent} for a customer, wired to persist its session at
- * `sessions/{customerId}/session.json` via the S3-backed
- * {@link S3SnapshotStorage}. The customer's `briefingPrompt` is used as the
- * system prompt (it guides both earthquake analysis and, later, briefing
+ * the SDK snapshot key
+ * `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json` via
+ * the SDK's official {@link S3Storage}. The customer's `briefingPrompt` is used
+ * as the system prompt (it guides both earthquake analysis and, later, briefing
  * synthesis — Requirement 11.2).
  *
  * @param customerId    the customer whose session to bind (sessionId).
@@ -545,7 +381,16 @@ export function buildAgent(
 ): Agent {
   const sessionManager = new SessionManager({
     sessionId: customerId,
-    storage: { snapshot: new S3SnapshotStorage(sessionsBucketName()) },
+    storage: {
+      snapshot: new S3Storage({
+        bucket: sessionsBucketName(),
+        prefix: SESSION_SNAPSHOT_PREFIX,
+        // Pass the shared client (not `region`) so the setS3ClientForTesting
+        // seam reaches the SDK storage; the two config options are mutually
+        // exclusive in the SDK.
+        s3Client: getS3Client(),
+      }),
+    },
     // Disable auto-save: we persist explicitly after a successful LLM
     // invocation (see processEarthquakeEvent). This gives deterministic
     // persist-on-success semantics so a failed invocation leaves the session
@@ -655,8 +500,9 @@ export type EarthquakeProcessingResult =
  *    user message (Requirement 7.2).
  * 4. Record the event in the metadata, inject the earthquake as a user message,
  *    and invoke the LLM. After the invocation succeeds, the updated
- *    conversation history + metadata are saved to
- *    `sessions/{customerId}/session.json` (Requirement 4.4).
+ *    conversation history + metadata are saved to the SDK snapshot key
+ *    `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`
+ *    (Requirement 4.4).
  *
  * This function assumes the caller already holds the per-customer distributed
  * lock (task 9.1 / handler task 9.10), so the read-modify-write of the session
@@ -706,11 +552,11 @@ export async function processEarthquakeEvent(
   const userMessage = formatEarthquakeUserMessage(event.data);
   const result = await agent.invoke(userMessage);
 
-  // Persist the updated conversation history + metadata to
-  // `sessions/{customerId}/session.json` only after a successful invocation
-  // (Requirement 4.4). Auto-save is disabled (saveLatestOn: 'trigger'), so a
-  // failed invocation above leaves the session untouched and the SQS message
-  // can retry without double-recording the event.
+  // Persist the updated conversation history + metadata to the SDK snapshot
+  // key sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json
+  // only after a successful invocation (Requirement 4.4). Auto-save is disabled
+  // (saveLatestOn: 'trigger'), so a failed invocation above leaves the session
+  // untouched and the SQS message can retry without double-recording the event.
   if (agent.sessionManager) {
     await agent.sessionManager.saveSnapshot({ target: agent, isLatest: true });
   }

@@ -14,7 +14,8 @@
  * - session missing (`NoSuchKey`) -> 200 with empty messages,
  * - 404 `$metadata` status -> 200 with empty messages,
  * - malformed JSON -> 200 with empty messages,
- * - correct S3 bucket + key (`sessions/{customerId}/session.json`),
+ * - correct S3 bucket + key
+ *   (`sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`),
  * - non-UUID customerId -> 400.
  */
 
@@ -103,7 +104,7 @@ describe("getSessionMessages", () => {
     expect(res.body).toEqual({ messages });
   });
 
-  it("reads sessions/{customerId}/session.json from the sessions bucket", async () => {
+  it("reads the SDK snapshot_latest.json key from the sessions bucket", async () => {
     s3Mock
       .on(GetObjectCommand)
       .resolves(bodyResponse(JSON.stringify({ messages: [] })));
@@ -113,7 +114,7 @@ describe("getSessionMessages", () => {
     const call = s3Mock.commandCalls(GetObjectCommand)[0];
     expect(call.args[0].input).toEqual({
       Bucket: BUCKET_NAME,
-      Key: `sessions/${CUSTOMER_ID}/session.json`,
+      Key: `sessions/${CUSTOMER_ID}/scopes/agent/agent/snapshots/snapshot_latest.json`,
     });
   });
 

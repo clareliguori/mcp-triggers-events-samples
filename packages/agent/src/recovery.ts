@@ -2,7 +2,8 @@
  * Corrupted-session detection and recovery for the Serverless Agent
  * (task 9.10, Requirement 15.5, design Error Scenario 5).
  *
- * A customer's session is restored from `sessions/{customerId}/session.json`
+ * A customer's session is restored from the SDK snapshot key
+ * `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`
  * by the Strands SDK `SessionManager` during `agent.initialize()`. If that
  * object is corrupt — non-JSON bytes, or a structurally-wrong snapshot the SDK
  * refuses to load (wrong `scope`, unsupported `schemaVersion`) — the restore
@@ -20,9 +21,8 @@
  *    is a loadable agent snapshot), or `corrupted` (unparseable or not a
  *    loadable snapshot).
  * 2. {@link recoverCorruptedSession} archives the corrupt bytes to
- *    `sessions/{customerId}/session.json-corrupted-{timestamp}` (copy aside,
- *    then delete the original) so the next restore sees no session and starts
- *    fresh.
+ *    `<snapshot_latest.json>-corrupted-{timestamp}` (copy aside, then delete
+ *    the original) so the next restore sees no session and starts fresh.
  *
  * The handler (task 9.10) calls {@link prepareSession} inside the per-customer
  * lock: if the session is corrupt it archives it (logging a warning with the
@@ -140,7 +140,7 @@ export async function inspectSession(
  *
  * The object is copied to a `-corrupted-{ISO timestamp}` suffix key (a unique,
  * non-clobbering name so repeated corruption is preserved for debugging) and
- * the original `session.json` is then deleted. Returns the archive key.
+ * the original `snapshot_latest.json` is then deleted. Returns the archive key.
  */
 export async function recoverCorruptedSession(
   customerId: string,

@@ -2,7 +2,7 @@
  * Property 9: Briefing Report Completeness and Integrity (task 9.9).
  *
  * Drives the REAL briefing path (`processBriefingEvent`) — a genuine Strands
- * {@link Agent} + {@link SessionManager} + {@link S3SnapshotStorage} restored
+ * {@link Agent} + {@link SessionManager} + the SDK's {@link S3Storage} restored
  * from a mocked S3 snapshot — across arbitrary conversation histories generated
  * with fast-check. Each generated history is a sequence of earthquake
  * observation user messages (interleaved with assistant analyses and some
@@ -200,9 +200,9 @@ function streamBody(text: string): GetObjectCommandOutput["Body"] {
   } as unknown as GetObjectCommandOutput["Body"];
 }
 
-/** The S3 key for the customer's session snapshot. */
+/** The S3 key for the customer's session snapshot (SDK latest-snapshot key). */
 function sessionKey(): string {
-  return `sessions/${CUSTOMER_ID}/session.json`;
+  return `sessions/${CUSTOMER_ID}/scopes/agent/agent/snapshots/snapshot_latest.json`;
 }
 
 /** Concatenate the text content of a captured {@link Message}. */

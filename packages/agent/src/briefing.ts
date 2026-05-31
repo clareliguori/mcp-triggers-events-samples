@@ -7,8 +7,9 @@
  * history into a {@link BriefingReport} (Requirements 4.5, 4.6, 11.x):
  *
  * 1. Restore the customer's session from S3 (Strands SDK `SessionManager`
- *    backed by {@link S3SnapshotStorage}, sessionId = customerId) and re-apply
- *    the customer's `briefingPrompt` as the system prompt (Requirement 11.2).
+ *    backed by the SDK's official {@link S3Storage}, sessionId = customerId)
+ *    and re-apply the customer's `briefingPrompt` as the system prompt
+ *    (Requirement 11.2).
  * 2. **Idempotency / empty-report guards** (Requirements 7.1, 7.3):
  *    - if the trigger's `eventId` was already processed, skip; and
  *    - if the conversation holds **no** earthquake observations, skip without
@@ -51,7 +52,7 @@
  * Reuses the same test seams as `accumulate.ts` ({@link setModelForTesting},
  * {@link setS3ClientForTesting}) plus a Data API seam ({@link
  * setReportWriterForTesting}) mirroring `router.ts`'s lookup seam, so unit
- * tests run the real Agent + SessionManager + S3SnapshotStorage against a fake
+ * tests run the real Agent + SessionManager + S3Storage against a fake
  * model (simulating the `save_report` tool call), mocked S3, and a mocked Data
  * API — with no AWS or LLM access.
  */
@@ -500,7 +501,9 @@ export async function processBriefingEvent(
   }
 
   // Persist the updated session (cleared conversation + updated metadata) to
-  // sessions/{customerId}/session.json (Requirement 4.6).
+  // the SDK snapshot key
+  // sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json
+  // (Requirement 4.6).
   if (agent.sessionManager) {
     await agent.sessionManager.saveSnapshot({ target: agent, isLatest: true });
   }

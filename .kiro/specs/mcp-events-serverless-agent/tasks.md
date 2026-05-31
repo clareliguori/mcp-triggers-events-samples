@@ -128,7 +128,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
 
   - [x] 4.6 Implement session messages read-only endpoint
     - Create `packages/data-api/src/routes/session.ts` with `GET /customers/:customerId/session/messages` handler
-    - Read the session snapshot from the sessions S3 bucket at `sessions/{customerId}/session.json` using `s3:GetObject` (read-only access)
+    - Read the session snapshot from the sessions S3 bucket at `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json` using `s3:GetObject` (read-only access)
     - Extract and return the `messages` array from the session snapshot
     - Enforce same authorization as other routes (Cognito: customerId must match JWT sub; IAM: allow any customer)
     - Handle missing session gracefully (return empty messages array)

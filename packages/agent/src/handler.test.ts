@@ -339,7 +339,7 @@ function streamBody(text: string): GetObjectCommandOutput["Body"] {
 }
 
 function sessionKey(): string {
-  return `sessions/${CUSTOMER_ID}/session.json`;
+  return `sessions/${CUSTOMER_ID}/scopes/agent/agent/snapshots/snapshot_latest.json`;
 }
 
 function makeSnapshot(opts: {

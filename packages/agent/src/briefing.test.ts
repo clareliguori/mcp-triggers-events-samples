@@ -2,7 +2,7 @@
  * Unit tests for the briefing trigger processing logic (task 9.8).
  *
  * These tests run the REAL Strands {@link Agent} + {@link SessionManager} +
- * {@link S3SnapshotStorage} against:
+ * the SDK's {@link S3Storage} against:
  * - a mocked S3 client (`aws-sdk-client-mock`) standing in for the sessions
  *   bucket,
  * - a {@link ToolCallingModel} test double swapped in via
@@ -232,9 +232,9 @@ function streamBody(text: string): GetObjectCommandOutput["Body"] {
   } as unknown as GetObjectCommandOutput["Body"];
 }
 
-/** The S3 key for the customer's session snapshot. */
+/** The S3 key for the customer's session snapshot (SDK latest-snapshot key). */
 function sessionKey(): string {
-  return `sessions/${CUSTOMER_ID}/session.json`;
+  return `sessions/${CUSTOMER_ID}/scopes/agent/agent/snapshots/snapshot_latest.json`;
 }
 
 /** Render an earthquake observation user message (mirrors accumulate.ts). */
@@ -255,7 +255,7 @@ function earthquakeMessageText(opts: {
 
 /**
  * Build a Strands SDK `Snapshot` carrying the given prior messages and session
- * metadata, matching what {@link S3SnapshotStorage} persists.
+ * metadata, matching what the SDK's {@link S3Storage} persists.
  */
 function makeSnapshot(opts: {
   messages?: { role: "user" | "assistant"; text: string }[];

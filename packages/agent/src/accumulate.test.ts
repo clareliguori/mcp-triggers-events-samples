@@ -2,7 +2,7 @@
  * Unit tests for the earthquake event processing logic (task 9.4).
  *
  * These tests run the REAL Strands {@link Agent} + {@link SessionManager} +
- * {@link S3SnapshotStorage} against:
+ * the SDK's {@link S3Storage} against:
  * - a mocked S3 client (`aws-sdk-client-mock`) standing in for the sessions
  *   bucket, and
  * - a {@link FakeModel} test double swapped in via {@link setModelForTesting}
@@ -12,8 +12,8 @@
  * persist path without AWS or LLM access (Requirements 4.4, 7.1, 7.2):
  * - injects the earthquake as a user message and records the assistant's
  *   analysis (the conversation history grows),
- * - persists the updated conversation history + metadata to
- *   `sessions/{customerId}/session.json`,
+ * - persists the updated conversation history + metadata to the SDK snapshot
+ *   key `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`,
  * - skips a duplicate event whose `eventId` is already in session metadata
  *   (idempotency), without writing a second user message,
  * - restores prior conversation history from an existing session snapshot.
@@ -154,14 +154,14 @@ function streamBody(text: string): GetObjectCommandOutput["Body"] {
   } as unknown as GetObjectCommandOutput["Body"];
 }
 
-/** The S3 key for the customer's session snapshot. */
+/** The S3 key for the customer's session snapshot (SDK latest-snapshot key). */
 function sessionKey(): string {
-  return `sessions/${CUSTOMER_ID}/session.json`;
+  return `sessions/${CUSTOMER_ID}/scopes/agent/agent/snapshots/snapshot_latest.json`;
 }
 
 /**
  * Build a Strands SDK `Snapshot` carrying the given prior messages and session
- * metadata, matching what {@link S3SnapshotStorage} persists.
+ * metadata, matching what the SDK's {@link S3Storage} persists.
  */
 function makeSnapshot(opts: {
   messages?: { role: "user" | "assistant"; text: string }[];
@@ -292,7 +292,7 @@ describe("processEarthquakeEvent", () => {
     const userMessage = sentMessages.find((m) => m.role === "user");
     expect(JSON.stringify(userMessage)).toContain("us7000n123");
 
-    // The session was persisted to sessions/{customerId}/session.json with the
+    // The session was persisted to the SDK snapshot_latest.json key with the
     // user message + assistant analysis in conversation history.
     const snapshot = persistedSnapshot();
     expect(snapshot).toBeDefined();

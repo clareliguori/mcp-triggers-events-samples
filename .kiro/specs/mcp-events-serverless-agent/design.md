@@ -266,13 +266,13 @@ sequenceDiagram
     alt Lock acquired
         Agent->>DataAPI: GET /customers/{customerId}/config (IAM SigV4)
         DataAPI-->>Agent: CustomerConfig (briefingPrompt, etc.)
-        Agent->>S3S: GetObject sessions/{customerId}/session.json<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
+        Agent->>S3S: GetObject sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
         S3S-->>Agent: Customer's session (conversation history)
         Agent->>Agent: Inject earthquake data as user message
         Agent->>LLM: Invoke with conversation history + earthquake message
         LLM-->>Agent: Analysis response (significance, patterns, etc.)
         Agent->>Agent: Append user message + assistant response to conversation
-        Agent->>S3S: PutObject sessions/{customerId}/session.json<br/>(updated conversation history)<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
+        Agent->>S3S: PutObject sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json<br/>(updated conversation history)<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
         Agent->>DDB: Release lock on customerId
         Agent-->>SQS: Success (message deleted)
     else Lock acquisition timeout
@@ -311,7 +311,7 @@ sequenceDiagram
     Agent->>DDB: Acquire lock on customerId
     Agent->>DataAPI: GET /customers/{customerId}/config (IAM SigV4)
     DataAPI-->>Agent: CustomerConfig (briefingPrompt)
-    Agent->>S3S: GetObject sessions/{customerId}/session.json<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
+    Agent->>S3S: GetObject sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
     S3S-->>Agent: Customer's session (conversation history with all earthquake analyses)
     Agent->>Agent: Inject trigger message:<br/>"Generate your periodic briefing report now."
     Agent->>LLM: Invoke with full conversation history + trigger message
@@ -319,7 +319,7 @@ sequenceDiagram
     Agent->>DataAPI: POST /customers/{customerId}/reports (IAM SigV4)<br/>(save_report tool callback)
     DataAPI->>S3R: PutObject report for customerId
     DataAPI-->>Agent: { reportId }
-    Agent->>S3S: PutObject sessions/{customerId}/session.json<br/>(conversation cleared or retained, updated metadata)<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
+    Agent->>S3S: PutObject sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json<br/>(conversation cleared or retained, updated metadata)<br/>(direct S3 via Strands SDK SessionManager + S3Storage)
     Agent->>DDB: Release lock on customerId
     Agent-->>SQS: Success (message deleted)
 ```
@@ -623,7 +623,7 @@ const saveReport = tool({
 interface AgentSessionConfig {
   storage: S3Storage; // Strands SDK S3Storage pointing to sessions bucket
   sessionId: string; // = customerId (ensures per-customer isolation)
-  // S3 path: sessions/{customerId}/session.json
+  // S3 path: sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json
 }
 
 // Customer routing from SQS message
@@ -670,7 +670,7 @@ interface DataApiClient {
 - **Acquire distributed lock on customer ID** before reading session state (direct DynamoDB access — own lock table)
 - Call Data API (`GET /customers/{customerId}/config`) to load CustomerConfig (IAM SigV4 auth)
 - Determine event type: `earthquake.detected` or `briefing.trigger`
-- **Restore customer's session directly from S3** using Strands SDK `SessionManager` with `S3Storage` (sessionId = customerId, path: `sessions/{customerId}/session.json`)
+- **Restore customer's session directly from S3** using Strands SDK `SessionManager` with `S3Storage` (sessionId = customerId, path: `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`)
 - For earthquake events: inject earthquake data as a user message → invoke LLM → agent responds with analysis → conversation history grows
 - For briefing triggers: inject trigger message ("Generate your periodic briefing report now.") → invoke LLM → agent calls `save_report` tool → report persisted via Data API → conversation history cleared or retained based on strategy
 - The agent's system prompt includes the customer's `briefingPrompt` which guides both earthquake analysis and report generation
@@ -1317,7 +1317,7 @@ Encryption uses a direct `kms:Encrypt` / `kms:Decrypt` of the ~50-byte secret va
 ```typescript
 /**
  * Persisted to S3 by the Strands SDK SessionManager.
- * Each customer has their own session at sessions/{customerId}/session.json.
+ * Each customer has their own session at sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json.
  * The SDK handles serialization; this shows the logical structure.
  *
  * KEY DESIGN DECISION: The conversation history IS the accumulated data.
@@ -1503,7 +1503,7 @@ _For any_ event processed twice for the same customer (same `eventId`), the sess
 
 ### Property 7: Customer Isolation
 
-_For any_ event `e` with subscription mapping to customer `C_a`, the only session file read or written during processing SHALL be `sessions/{C_a}/session.json`. No other customer's session SHALL be accessed, and no earthquakes from customer `C_a`'s session SHALL appear in any other customer's briefing report.
+_For any_ event `e` with subscription mapping to customer `C_a`, the only session file read or written during processing SHALL be `sessions/{C_a}/scopes/agent/agent/snapshots/snapshot_latest.json`. No other customer's session SHALL be accessed, and no earthquakes from customer `C_a`'s session SHALL appear in any other customer's briefing report.
 
 **Validates: Requirements 5.1, 5.2**
 

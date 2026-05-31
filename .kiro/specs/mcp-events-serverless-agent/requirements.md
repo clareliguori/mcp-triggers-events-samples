@@ -66,7 +66,7 @@ This document defines the requirements for the MCP Events Serverless Agent — a
 
 1. WHEN the Serverless_Agent is triggered by an SQS message, THE Serverless_Agent SHALL extract the `subscriptionId` from message attributes and resolve it to a `customerId` via the Data_API
 2. WHEN the customer is resolved, THE Serverless_Agent SHALL acquire a distributed lock on the customer ID before reading session state
-3. WHEN the lock is acquired, THE Serverless_Agent SHALL restore the customer's session from S3 using the Strands SDK SessionManager with S3Storage at path `sessions/{customerId}/session.json`
+3. WHEN the lock is acquired, THE Serverless_Agent SHALL restore the customer's session from S3 using the Strands SDK SessionManager with S3Storage at path `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`
 4. WHEN an `earthquake.detected` event is processed, THE Serverless_Agent SHALL inject the earthquake data as a user message, invoke the LLM which responds with analysis, and persist the updated conversation history to S3
 5. WHEN a `briefing.trigger` event is processed, THE Serverless_Agent SHALL invoke the LLM with a briefing trigger message; the LLM synthesizes all earthquake observations in its conversation history and calls the save_report tool to persist the report via the Data_API
 6. WHEN a briefing report is saved, THE Serverless_Agent SHALL persist the updated session to S3; the conversation history may be cleared or retained based on context window management strategy after the report is saved

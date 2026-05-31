@@ -3,7 +3,7 @@
  *
  * SQS delivers at-least-once, so the agent must treat a re-delivered event as a
  * no-op. This property drives the REAL processing paths — a genuine Strands
- * {@link Agent} + {@link SessionManager} + {@link S3SnapshotStorage} — against a
+ * {@link Agent} + {@link SessionManager} + the SDK's {@link S3Storage} — against a
  * **stateful, in-memory S3 mock** so that the *second* delivery actually reads
  * back the session the *first* delivery persisted (the round-trip is what makes
  * idempotency observable). For ANY generated event(s) this pins the contract:
@@ -101,7 +101,7 @@ function installStatefulS3(store: Map<string, string>): void {
   s3Mock.on(GetObjectCommand).callsFake((input: Record<string, unknown>) => {
     const key = input.Key as string;
     if (!store.has(key)) {
-      // Mirrors a real "missing object" so S3SnapshotStorage returns null.
+      // Mirrors a real "missing object" so the SDK S3Storage returns null.
       throw Object.assign(new Error("missing"), { name: "NoSuchKey" });
     }
     return { Body: streamBody(store.get(key)!) };
@@ -130,9 +130,9 @@ function streamBody(text: string): GetObjectCommandOutput["Body"] {
   } as unknown as GetObjectCommandOutput["Body"];
 }
 
-/** The S3 key for the customer's session snapshot. */
+/** The S3 key for the customer's session snapshot (SDK latest-snapshot key). */
 function sessionKey(): string {
-  return `sessions/${CUSTOMER_ID}/session.json`;
+  return `sessions/${CUSTOMER_ID}/scopes/agent/agent/snapshots/snapshot_latest.json`;
 }
 
 /** Shape of the persisted session snapshot's `data` block. */

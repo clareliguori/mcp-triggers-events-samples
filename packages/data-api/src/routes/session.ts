@@ -3,9 +3,11 @@
  *
  * Route: GET /customers/:customerId/session/messages
  *
- * Reads the agent's session snapshot from the sessions S3 bucket at
- * `sessions/{customerId}/session.json` (read-only `s3:GetObject`) and returns
- * the conversation history as `{ messages: [...] }` (Requirements 9.8, 10.7).
+ * Reads the agent's session snapshot from the sessions S3 bucket at the SDK
+ * snapshot key
+ * `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`
+ * (read-only `s3:GetObject`) and returns the conversation history as
+ * `{ messages: [...] }` (Requirements 9.8, 10.7).
  *
  * The sessions bucket is owned by AgentStack; the agent writes it directly via
  * the Strands SDK `SessionManager` + `S3Storage`. The Data API only ever reads
@@ -67,7 +69,7 @@ function sessionsBucketName(): string {
 
 /** Build the S3 object key for a customer's session snapshot. */
 function sessionKey(customerId: string): string {
-  return `sessions/${customerId}/session.json`;
+  return `sessions/${customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`;
 }
 
 /**
@@ -141,9 +143,10 @@ function extractMessages(snapshot: unknown): ConversationMessage[] {
  * GET /customers/:customerId/session/messages — return the agent's conversation
  * history for a customer (task 4.6).
  *
- * Reads `sessions/{customerId}/session.json` from the sessions bucket and
- * returns `{ messages: [...] }`. Returns an empty list (still 200) when the
- * snapshot is absent or unparseable so the webapp view stays resilient.
+ * Reads `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`
+ * from the sessions bucket and returns `{ messages: [...] }`. Returns an empty
+ * list (still 200) when the snapshot is absent or unparseable so the webapp
+ * view stays resilient.
  */
 export async function getSessionMessages(
   ctx: RouteContext,

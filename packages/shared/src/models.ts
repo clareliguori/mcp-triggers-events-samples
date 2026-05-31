@@ -196,7 +196,7 @@ export interface WebhookSubscription {
 
 /**
  * Persisted to S3 by the Strands SDK SessionManager.
- * Each customer has their own session at `sessions/{customerId}/session.json`.
+ * Each customer has their own session at `sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`.
  *
  * The SDK handles serialization; this type describes the logical structure
  * exposed to application code. The conversation history IS the accumulated
