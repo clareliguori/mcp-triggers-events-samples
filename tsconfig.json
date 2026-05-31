@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/shared" },
+    { "path": "./packages/mcp-server-core" },
     { "path": "./packages/cdk" },
     { "path": "./packages/data-api" },
     { "path": "./packages/usgs-server" },

@@ -1,10 +1,11 @@
 {
-  "name": "@mcp-events/scheduler-server",
+  "name": "@mcp-events/mcp-server-core",
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "MCP Server 2 — Message Scheduler (Lambda)",
-  "main": "dist/handler.js",
+  "description": "Shared MCP Events server core — clients, env, subscription store, webhook delivery, JSON-RPC transport, and dual-trigger dispatch reused by the USGS and Scheduler MCP servers",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc --build",
     "clean": "tsc --build --clean"
@@ -13,9 +14,7 @@
     "@aws-sdk/client-dynamodb": "3.1056.0",
     "@aws-sdk/client-kms": "3.1056.0",
     "@aws-sdk/lib-dynamodb": "3.1056.0",
-    "@mcp-events/mcp-server-core": "0.0.1",
     "@mcp-events/shared": "0.0.1",
-    "@modelcontextprotocol/sdk": "*",
     "standardwebhooks": "*",
     "zod": "*"
   },

@@ -7,6 +7,7 @@
   "license": "Apache-2.0",
   "workspaces": [
     "packages/shared",
+    "packages/mcp-server-core",
     "packages/cdk",
     "packages/data-api",
     "packages/usgs-server",
