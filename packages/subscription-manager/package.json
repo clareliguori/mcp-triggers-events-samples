@@ -10,6 +10,8 @@
     "clean": "tsc --build --clean"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "3.1056.0",
+    "@aws-sdk/util-dynamodb": "3.996.2",
     "@aws/run-mcp-servers-with-aws-lambda": "*",
     "@mcp-events/shared": "0.0.1",
     "@modelcontextprotocol/sdk": "*",
