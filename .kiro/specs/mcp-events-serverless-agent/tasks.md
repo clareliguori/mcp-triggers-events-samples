@@ -281,7 +281,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - **Validates: Requirements 5.1, 5.2**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [ ] 9.8 Implement briefing generation logic
+  - [x] 9.8 Implement briefing generation logic
     - Create `packages/agent/src/briefing.ts` with briefing trigger processing
     - Load customer's `briefingPrompt` from config (used as system prompt)
     - Inject briefing trigger message into conversation history (e.g., "Generate your periodic briefing report now.")

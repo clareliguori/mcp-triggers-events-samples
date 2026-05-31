@@ -63,11 +63,13 @@ import {
   BedrockModel,
   SessionManager,
   SNAPSHOT_SCHEMA_VERSION,
+  type ConversationManager,
   type Model,
   type Snapshot,
   type SnapshotLocation,
   type SnapshotManifest,
   type SnapshotStorage,
+  type ToolList,
 } from "@strands-agents/sdk";
 
 // ---------------------------------------------------------------------------
@@ -149,8 +151,14 @@ function emptyMetadata(displayName: string): SessionMetadata {
  * Read the session metadata from the agent's restored appState, tolerating a
  * missing or partially-shaped record (e.g. a first-ever event or a session
  * written by an earlier version). Always returns a fully-populated, safe value.
+ *
+ * Exported so the briefing path (task 9.8) reads/updates the same metadata
+ * record without duplicating the tolerant-parsing logic.
  */
-function readMetadata(agent: Agent, displayName: string): SessionMetadata {
+export function readMetadata(
+  agent: Agent,
+  displayName: string,
+): SessionMetadata {
   const raw = agent.appState.get(SESSION_METADATA_KEY);
   const base = emptyMetadata(displayName);
   if (raw === null || typeof raw !== "object") {
@@ -186,8 +194,13 @@ function readMetadata(agent: Agent, displayName: string): SessionMetadata {
   };
 }
 
-/** Persist the metadata back into the agent's appState (captured on save). */
-function writeMetadata(agent: Agent, metadata: SessionMetadata): void {
+/**
+ * Persist the metadata back into the agent's appState (captured on save).
+ *
+ * Exported so the briefing path (task 9.8) writes the same metadata record
+ * (e.g. stamping `lastBriefingAt`) through one code path.
+ */
+export function writeMetadata(agent: Agent, metadata: SessionMetadata): void {
   agent.appState.set(SESSION_METADATA_KEY, {
     ...metadata,
   });
@@ -198,8 +211,11 @@ function writeMetadata(agent: Agent, metadata: SessionMetadata): void {
  * stamp the activity time, and append the event to the bounded
  * `processedEventIds` window (oldest entries evicted past
  * {@link PROCESSED_EVENT_IDS_LIMIT}).
+ *
+ * Exported so the briefing path (task 9.8) records its `briefing.trigger`
+ * eventId in the same bounded idempotency window used for earthquake events.
  */
-function recordProcessedEvent(
+export function recordProcessedEvent(
   metadata: SessionMetadata,
   eventId: string,
   displayName: string,
@@ -470,14 +486,41 @@ function resolveModel(): Model {
 // Agent construction
 // ---------------------------------------------------------------------------
 
+/** Options for {@link buildAgent}. */
+export interface BuildAgentOptions {
+  /**
+   * Tools to register on the agent. The earthquake path (task 9.4) passes
+   * none; the briefing path (task 9.8) passes the `save_report` tool so the
+   * LLM can persist its synthesized report.
+   */
+  tools?: ToolList;
+  /**
+   * Conversation manager controlling history retention. Defaults to the SDK's
+   * sliding-window manager (the earthquake path's behavior). The briefing path
+   * passes a {@link NullConversationManager} so the LLM sees **all** prior
+   * earthquake observations when synthesizing the report (Requirement 11.1)
+   * rather than a truncated window.
+   */
+  conversationManager?: ConversationManager;
+}
+
 /**
  * Build a Strands {@link Agent} for a customer, wired to persist its session at
  * `sessions/{customerId}/session.json` via the S3-backed
  * {@link S3SnapshotStorage}. The customer's `briefingPrompt` is used as the
  * system prompt (it guides both earthquake analysis and, later, briefing
  * synthesis — Requirement 11.2).
+ *
+ * @param customerId    the customer whose session to bind (sessionId).
+ * @param systemPrompt  the customer's `briefingPrompt`.
+ * @param options       optional tools / conversation manager (see
+ *   {@link BuildAgentOptions}).
  */
-export function buildAgent(customerId: string, systemPrompt: string): Agent {
+export function buildAgent(
+  customerId: string,
+  systemPrompt: string,
+  options: BuildAgentOptions = {},
+): Agent {
   const sessionManager = new SessionManager({
     sessionId: customerId,
     storage: { snapshot: new S3SnapshotStorage(sessionsBucketName()) },
@@ -492,6 +535,10 @@ export function buildAgent(customerId: string, systemPrompt: string): Agent {
     model: resolveModel(),
     systemPrompt,
     sessionManager,
+    ...(options.tools !== undefined && { tools: options.tools }),
+    ...(options.conversationManager !== undefined && {
+      conversationManager: options.conversationManager,
+    }),
     // The agent runs headless in Lambda; no console output.
     printer: false,
   });
@@ -500,6 +547,14 @@ export function buildAgent(customerId: string, systemPrompt: string): Agent {
 // ---------------------------------------------------------------------------
 // Earthquake user-message formatting
 // ---------------------------------------------------------------------------
+
+/**
+ * Leading line of an earthquake observation user message. Exported so the
+ * briefing path (task 9.8) can recognize earthquake observations already in the
+ * conversation history (to count them for the report and to guard against
+ * generating an empty briefing) without re-implementing the format.
+ */
+export const EARTHQUAKE_MESSAGE_PREFIX = "A new earthquake has been detected:";
 
 /**
  * Render an {@link EarthquakeDetectedData} payload as a human-readable user
@@ -515,7 +570,7 @@ export function formatEarthquakeUserMessage(
   const felt = data.felt === null ? "no reports" : `${data.felt} reports`;
   const alert = data.alert ?? "none";
   return [
-    "A new earthquake has been detected:",
+    EARTHQUAKE_MESSAGE_PREFIX,
     `- ID: ${data.earthquakeId}`,
     `- Magnitude: ${data.magnitude}`,
     `- Location: ${data.place}`,

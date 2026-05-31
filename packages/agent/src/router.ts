@@ -37,14 +37,12 @@
  * - thrown error      -> report a batch item failure (SQS retry).
  */
 
-import { Sha256 } from "@aws-crypto/sha256-js";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
-import { defaultProvider } from "@aws-sdk/credential-provider-node";
 import type { McpEventPayload } from "@mcp-events/shared";
 import { mcpEventPayloadSchema } from "@mcp-events/shared";
-import { SignatureV4 } from "@smithy/signature-v4";
-import type { HttpRequest } from "@smithy/types";
 import type { SQSRecord } from "aws-lambda";
+
+import { signedFetch } from "./sigv4.js";
 
 /**
  * Name of the SQS message attribute that carries the originating subscription
@@ -121,50 +119,22 @@ function dataApiUrl(): string {
   return url;
 }
 
-/** Resolve the signing region from the Lambda environment. */
-function signingRegion(): string {
-  return (
-    process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? "us-east-1"
-  );
-}
-
 /**
  * SigV4-sign `GET {DATA_API_URL}/subscriptions/{id}` for the `execute-api`
- * service and deliver it with the global `fetch` (Node 20+). Credentials come
- * from the Lambda execution role via the default provider chain. The Data API
- * returns the {@link WebhookSubscription} (including `customerId`) as JSON
- * (Requirement 4.1, 17.7).
+ * service and deliver it with the shared {@link signedFetch} helper.
+ * Credentials come from the Lambda execution role via the default provider
+ * chain. The Data API returns the {@link WebhookSubscription} (including
+ * `customerId`) as JSON (Requirement 4.1, 17.7).
  */
 const defaultLookup: SubscriptionLookup = async (subscriptionId) => {
   const baseUrl = dataApiUrl().replace(/\/+$/, "");
   const target = `${baseUrl}/subscriptions/${encodeURIComponent(subscriptionId)}`;
-  const url = new URL(target);
 
-  const signer = new SignatureV4({
-    service: "execute-api",
-    region: signingRegion(),
-    credentials: defaultProvider(),
-    sha256: Sha256,
-  });
-
-  const toSign: HttpRequest = {
+  return signedFetch({
     method: "GET",
-    protocol: url.protocol,
-    hostname: url.hostname,
-    path: url.pathname,
-    // SigV4 sets the `host` header during signing; provide it explicitly too.
-    headers: { host: url.host, accept: "application/json" },
-    body: undefined,
-  };
-
-  const signed = await signer.sign(toSign);
-
-  const response = await fetch(target, {
-    method: "GET",
-    headers: signed.headers,
+    url: target,
+    headers: { accept: "application/json" },
   });
-
-  return { statusCode: response.status, body: await response.text() };
 };
 
 /** Module-level lookup singleton (test seam). */
