@@ -269,13 +269,13 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 4.4, 7.1, 7.2_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/agent/src/accumulate.ts`_
 
-  - [ ] 9.6 Write property test for idempotent event processing (Property 6)
+  - [-] 9.6 Write property test for idempotent event processing (Property 6)
     - **Property 6: Idempotent Event Processing**
     - Process the same event twice for the same customer, verify session state is identical after both processings; no duplicate earthquakes or reports
     - **Validates: Requirements 7.1, 7.2, 7.3**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [ ] 9.7 Write property test for customer isolation (Property 7)
+  - [-] 9.7 Write property test for customer isolation (Property 7)
     - **Property 7: Customer Isolation**
     - Generate events with mixed customer IDs, verify each customer's session contains only their events and no cross-customer data leakage
     - **Validates: Requirements 5.1, 5.2**
@@ -291,13 +291,13 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 4.5, 4.6, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/agent/src/briefing.ts`_
 
-  - [ ] 9.9 Write property test for briefing report completeness (Property 9)
+  - [x] 9.9 Write property test for briefing report completeness (Property 9)
     - **Property 9: Briefing Report Completeness and Integrity**
     - Generate arbitrary sequences of earthquake user messages in conversation history, verify that when the LLM generates a briefing it has access to all prior earthquake messages in the conversation; verify periodStart < periodEnd and notableQuakes reference earthquakes present in the conversation context
     - **Validates: Requirements 11.1, 11.3, 11.5, 11.6**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [ ] 9.10 Implement Agent Lambda handler with SQS integration
+  - [-] 9.10 Implement Agent Lambda handler with SQS integration
     - Create `packages/agent/src/handler.ts` with SQS event handler (batch size 1)
     - Wire together: parse SQS message → resolve customer → acquire lock → restore session → inject event as message → invoke LLM → if briefing trigger, LLM calls `save_report` tool → persist session → release lock
     - Implement partial batch failure response (SQSBatchResponse)
