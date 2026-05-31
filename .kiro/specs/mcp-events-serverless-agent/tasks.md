@@ -306,7 +306,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 4.1, 4.2, 4.3, 4.7, 6.3, 15.2, 15.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/agent/src/handler.ts`_
 
-- [-] 10. Subscription Manager
+- [x] 10. Subscription Manager
   - [x] 10.1 Implement subscription creation for new customers
     - Create `packages/subscription-manager/src/register.ts` with customer registration logic
     - Parse DynamoDB Stream INSERT events to detect new customers
@@ -343,7 +343,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 8.1, 8.2, 14.6_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/subscription-manager/src/handler.ts`_
 
-- [ ] 11. Checkpoint — Verify agent and subscription manager
+- [x] 11. Checkpoint — Verify agent and subscription manager
   - Ensure all tests pass, ask the user if questions arise.
   - _Validation: All preceding tasks' validations pass; `npx tsc --noEmit` compiles entire monorepo; `npx vitest run` passes all tests_
 
