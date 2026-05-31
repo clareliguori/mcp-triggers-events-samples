@@ -269,7 +269,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 4.4, 7.1, 7.2_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/agent/src/accumulate.ts`_
 
-  - [-] 9.6 Write property test for idempotent event processing (Property 6)
+  - [x] 9.6 Write property test for idempotent event processing (Property 6)
     - **Property 6: Idempotent Event Processing**
     - Process the same event twice for the same customer, verify session state is identical after both processings; no duplicate earthquakes or reports
     - **Validates: Requirements 7.1, 7.2, 7.3**
