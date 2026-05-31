@@ -237,8 +237,8 @@ This implementation plan breaks the multi-stack CDK application into incremental
   - Ensure all tests pass, ask the user if questions arise.
   - _Validation: All preceding tasks' validations pass; `npx tsc --noEmit` compiles entire monorepo; `npx vitest run` passes all tests_
 
-- [ ] 9. Serverless Agent
-  - [ ] 9.1 Configure distributed lock using @deliveryhero/dynamodb-lock
+- [-] 9. Serverless Agent
+  - [x] 9.1 Configure distributed lock using @deliveryhero/dynamodb-lock
     - Create `packages/agent/src/lock.ts` that instantiates `DynamoDBLock` from `@deliveryhero/dynamodb-lock` with the session locks table name and DynamoDB client
     - Configure TTL of 60 seconds and acquisition timeout of 10 seconds
     - Export a helper function `withLock(customerId, fn)` that acquires the lock, runs the function, and releases in a finally block
