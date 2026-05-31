@@ -12,6 +12,7 @@
   "dependencies": {
     "@aws-crypto/sha256-js": "5.2.0",
     "@aws-sdk/client-dynamodb": "3.1056.0",
+    "@aws-sdk/client-s3": "3.1056.0",
     "@aws-sdk/client-sqs": "3.1056.0",
     "@aws-sdk/credential-provider-node": "3.972.46",
     "@aws-sdk/lib-dynamodb": "3.1056.0",

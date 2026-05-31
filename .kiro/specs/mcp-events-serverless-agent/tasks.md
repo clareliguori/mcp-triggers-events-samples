@@ -260,7 +260,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 4.1, 15.6_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/agent/src/router.ts`_
 
-  - [ ] 9.4 Implement earthquake event processing logic
+  - [x] 9.4 Implement earthquake event processing logic
     - Create `packages/agent/src/accumulate.ts` with earthquake event processing
     - Inject earthquake data as a user message into the agent's conversation history
     - Invoke the LLM with the updated conversation (earthquake message + prior context); LLM responds with analysis
