@@ -100,8 +100,13 @@ export const PROCESSED_EVENT_IDS_LIMIT = 200;
  */
 const DEFAULT_BEDROCK_MODEL_ID = "anthropic.claude-3-5-sonnet-20240620-v1:0";
 
-/** Resolve the sessions bucket name from the environment (set by AgentStack). */
-function sessionsBucketName(): string {
+/**
+ * Resolve the sessions bucket name from the environment (set by AgentStack).
+ *
+ * Exported so the corrupted-session recovery path (task 9.10) archives the
+ * corrupt object in the same bucket without duplicating the env lookup.
+ */
+export function sessionsBucketName(): string {
   const name = process.env.SESSIONS_BUCKET_NAME;
   if (!name) {
     // Misconfiguration — surfaces as a failed invocation so the message retries.
@@ -244,12 +249,29 @@ export function recordProcessedEvent(
 /** Lazily-created S3 client, reused across warm invocations. */
 let s3Client: S3Client | undefined;
 
-/** Return the shared {@link S3Client}, creating it on first use. */
-function getS3Client(): S3Client {
+/**
+ * Return the shared {@link S3Client}, creating it on first use.
+ *
+ * Exported so the corrupted-session recovery path (task 9.10) archives the
+ * corrupt object through the same client (and therefore the same
+ * {@link setS3ClientForTesting} test seam) the agent's storage uses.
+ */
+export function getS3Client(): S3Client {
   if (!s3Client) {
     s3Client = new S3Client({});
   }
   return s3Client;
+}
+
+/**
+ * The S3 object key holding a customer's mutable "latest" session snapshot,
+ * `sessions/{customerId}/session.json`. This is the canonical session file the
+ * design, the Data API session reader (task 4.6), and {@link S3SnapshotStorage}
+ * all agree on. Exported so the corrupted-session recovery path (task 9.10)
+ * inspects and archives exactly this object.
+ */
+export function sessionSnapshotKey(customerId: string): string {
+  return `sessions/${customerId}/session.json`;
 }
 
 /**
@@ -261,7 +283,7 @@ export function setS3ClientForTesting(client: S3Client | undefined): void {
 }
 
 /** True when an S3 error represents a missing object/bucket or a 404 response. */
-function isNotFoundError(error: unknown): boolean {
+export function isNotFoundError(error: unknown): boolean {
   if (error === null || typeof error !== "object") {
     return false;
   }

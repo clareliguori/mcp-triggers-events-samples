@@ -297,7 +297,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - **Validates: Requirements 11.1, 11.3, 11.5, 11.6**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [-] 9.10 Implement Agent Lambda handler with SQS integration
+  - [x] 9.10 Implement Agent Lambda handler with SQS integration
     - Create `packages/agent/src/handler.ts` with SQS event handler (batch size 1)
     - Wire together: parse SQS message → resolve customer → acquire lock → restore session → inject event as message → invoke LLM → if briefing trigger, LLM calls `save_report` tool → persist session → release lock
     - Implement partial batch failure response (SQSBatchResponse)

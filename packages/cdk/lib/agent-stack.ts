@@ -47,11 +47,9 @@ export type AgentStackProps = cdk.StackProps & SharedProps;
  * with `customerId` as the partition key and a `ttl` TTL attribute per the task
  * design; subtask 9.1 configures the lock client's key/ttl names to match.
  *
- * HANDLER NOTE: The Lambda handler lives in the @mcp-events/agent package
- * (subtask 9.10 creates src/handler.ts). It is not implemented yet, so the
- * NodejsFunction entry points at the existing placeholder src/index.ts so this
- * stack synthesizes today. Subtask 9.10 should repoint `entry` to
- * src/handler.ts.
+ * HANDLER NOTE: The Lambda handler lives in the @mcp-events/agent package at
+ * src/handler.ts (subtask 9.10). The NodejsFunction `entry` points at it and
+ * the exported `handler` function is the SQS event handler.
  */
 export class AgentStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: AgentStackProps) {
@@ -113,7 +111,7 @@ export class AgentStack extends cdk.Stack {
     const agentPackageRoot = path.join(__dirname, "..", "..", "..", "agent");
     const handlerFn = new NodejsFunction(this, "AgentHandler", {
       runtime: lambda.Runtime.NODEJS_20_X,
-      entry: path.join(agentPackageRoot, "src", "index.ts"),
+      entry: path.join(agentPackageRoot, "src", "handler.ts"),
       handler: "handler",
       memorySize: 512,
       // The agent invokes the LLM per event; give it generous headroom while
