@@ -275,7 +275,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - **Validates: Requirements 7.1, 7.2, 7.3**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [-] 9.7 Write property test for customer isolation (Property 7)
+  - [x] 9.7 Write property test for customer isolation (Property 7)
     - **Property 7: Customer Isolation**
     - Generate events with mixed customer IDs, verify each customer's session contains only their events and no cross-customer data leakage
     - **Validates: Requirements 5.1, 5.2**
