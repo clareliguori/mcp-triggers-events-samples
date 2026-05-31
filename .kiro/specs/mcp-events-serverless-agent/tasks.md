@@ -245,7 +245,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests verifying lock helper wraps the library correctly; `npx eslint packages/agent/src/lock.ts`_
 
-  - [-] 9.2 Write integration test for distributed lock behavior (Property 8)
+  - [x] 9.2 Write integration test for distributed lock behavior (Property 8)
     - **Property 8: Session Write Serialization (Mutual Exclusion)**
     - Test that two concurrent `withLock` calls for the same customer ID result in one waiting for the other (not both executing simultaneously)
     - Test that a lock with expired TTL can be acquired by a new caller
