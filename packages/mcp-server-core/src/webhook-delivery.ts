@@ -20,8 +20,11 @@ import type {
   McpEventPayload,
   WebhookSubscription,
 } from "@mcp-events/shared";
-import { decryptSubscriptionSecret } from "@mcp-events/shared";
-import { Webhook } from "standardwebhooks";
+import {
+  decryptSubscriptionSecret,
+  MCP_SUBSCRIPTION_ID_HEADER,
+  signWebhook,
+} from "@mcp-events/shared";
 
 import { getFetchImpl, getKmsClient, getSleepImpl } from "./clients.js";
 
@@ -29,8 +32,12 @@ import { getFetchImpl, getKmsClient, getSleepImpl } from "./clients.js";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Routing header that selects a delivery's per-subscription secret. */
-export const MCP_SUBSCRIPTION_ID_HEADER = "X-MCP-Subscription-Id";
+/**
+ * Re-export the routing header that selects a delivery's per-subscription
+ * secret so the core package's public surface is unchanged for the server
+ * handlers (`export { MCP_SUBSCRIPTION_ID_HEADER } from "@mcp-events/mcp-server-core"`).
+ */
+export { MCP_SUBSCRIPTION_ID_HEADER };
 
 /**
  * Exponential backoff schedule for webhook delivery retries (Requirement 15.1):
@@ -66,32 +73,6 @@ export function buildMcpEvent<
     timestamp: now.toISOString(),
     data,
     cursor,
-  };
-}
-
-/**
- * Compute the Standard Webhooks signature headers for a serialized payload and
- * a per-subscription `whsec_` secret, using the `standardwebhooks` library — the
- * same library/scheme the Webhook Receiver verifies with (task 5.1). The
- * receiver package is not a dependency here, so each Lambda bundles the shared
- * library independently.
- */
-export function signDeliveryHeaders(
-  payload: string,
-  secret: string,
-  now: Date = new Date(),
-): {
-  "webhook-id": string;
-  "webhook-timestamp": string;
-  "webhook-signature": string;
-} {
-  const webhook = new Webhook(secret);
-  const msgId = `msg_${randomUUID()}`;
-  const signature = webhook.sign(msgId, now, payload);
-  return {
-    "webhook-id": msgId,
-    "webhook-timestamp": String(Math.floor(now.getTime() / 1000)),
-    "webhook-signature": signature,
   };
 }
 
@@ -132,7 +113,7 @@ export async function deliverEvent(
   );
 
   const payload = JSON.stringify(event);
-  const signatureHeaders = signDeliveryHeaders(payload, secret, now);
+  const signatureHeaders = signWebhook(payload, secret, { timestamp: now });
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     [MCP_SUBSCRIPTION_ID_HEADER]: subscription.subscriptionId,

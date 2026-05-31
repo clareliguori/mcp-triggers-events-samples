@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-kms": "3.1056.0",
+    "standardwebhooks": "*",
     "zod": "*"
   }
 }

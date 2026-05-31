@@ -15,7 +15,6 @@
     "@aws-sdk/client-kms": "3.1056.0",
     "@aws-sdk/lib-dynamodb": "3.1056.0",
     "@mcp-events/shared": "0.0.1",
-    "standardwebhooks": "*",
     "zod": "*"
   },
   "devDependencies": {
