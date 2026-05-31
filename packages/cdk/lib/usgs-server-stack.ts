@@ -122,7 +122,7 @@ export class UsgsServerStack extends cdk.Stack {
     );
     const handlerFn = new NodejsFunction(this, "UsgsServerHandler", {
       runtime: lambda.Runtime.NODEJS_20_X,
-      entry: path.join(usgsServerPackageRoot, "src", "index.ts"),
+      entry: path.join(usgsServerPackageRoot, "src", "handler.ts"),
       handler: "handler",
       memorySize: 256,
       timeout: cdk.Duration.seconds(60),
