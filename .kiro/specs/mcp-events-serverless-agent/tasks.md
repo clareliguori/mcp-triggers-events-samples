@@ -233,7 +233,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - **Validates: Requirement 14.3**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-- [ ] 8. Checkpoint — Verify MCP servers and webhook receiver
+- [x] 8. Checkpoint — Verify MCP servers and webhook receiver
   - Ensure all tests pass, ask the user if questions arise.
   - _Validation: All preceding tasks' validations pass; `npx tsc --noEmit` compiles entire monorepo; `npx vitest run` passes all tests_
 
