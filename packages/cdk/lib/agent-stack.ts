@@ -28,7 +28,9 @@ export type AgentStackProps = cdk.StackProps & SharedProps;
  *   crashes (Requirements 6.1, 6.4).
  * - A least-privilege execution role granting `execute-api:Invoke` on the Data
  *   API (the agent signs requests with SigV4 to resolve subscriptions and load
- *   config), read/write on the sessions bucket, and read/write on the locks
+ *   config), `bedrock:InvokeModel` on the foundation models / inference
+ *   profiles the Strands Agent invokes for its LLM analysis and briefing
+ *   synthesis, read/write on the sessions bucket, and read/write on the locks
  *   table (Requirements 17.3, 17.7).
  *
  * CROSS-STACK CONTRACT: This stack exports the sessions bucket ARN under the
@@ -168,6 +170,38 @@ export class AgentStack extends cdk.Stack {
             service: "execute-api",
             resource: "*",
             arnFormat: cdk.ArnFormat.NO_RESOURCE_NAME,
+          }),
+        ],
+      }),
+    );
+
+    // bedrock:InvokeModel(+ WithResponseStream) so the Strands Agent can invoke
+    // the LLM, which is the agent's core function (it constructs a BedrockModel
+    // and calls it for every earthquake analysis and briefing synthesis). The
+    // model id is configurable via the BEDROCK_MODEL_ID environment variable
+    // (default anthropic.claude-3-5-sonnet), and Bedrock on-demand throughput
+    // for newer Anthropic models is reached through a cross-region inference
+    // profile that fans out to foundation models in sibling regions. Scope the
+    // grant to this account's foundation-model and inference-profile ARNs
+    // across regions so any configured model resolves without granting "*"
+    // (Requirements 13.5, 17.3 least privilege).
+    handlerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
+        ],
+        resources: [
+          // Foundation models are AWS-owned, so the account id is empty in the
+          // ARN; allow any region so cross-region inference profiles resolve.
+          `arn:${cdk.Aws.PARTITION}:bedrock:*::foundation-model/*`,
+          // Inference profiles are account-scoped.
+          cdk.Stack.of(this).formatArn({
+            service: "bedrock",
+            region: "*",
+            resource: "inference-profile",
+            resourceName: "*",
+            arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME,
           }),
         ],
       }),

@@ -390,8 +390,8 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 10.7_
     - _Validation: `npm run build` succeeds (SvelteKit static build); `npm run check` passes (svelte-check for type errors); visual inspection: `npm run dev` and verify UI renders correctly_
 
-- [ ] 13. Integration wiring and end-to-end testing
-  - [ ] 13.1 Wire all CDK stacks with cross-stack references
+- [-] 13. Integration wiring and end-to-end testing
+  - [x] 13.1 Wire all CDK stacks with cross-stack references
     - Ensure all CfnOutput exports and Fn.importValue imports are correctly wired
     - Verify IAM roles have correct permissions (least-privilege)
     - Verify environment variables pass correct URLs and ARNs to all Lambdas

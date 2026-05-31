@@ -69,6 +69,12 @@ export class SubscriptionManagerStack extends cdk.Stack {
     const dataApiUrl = `https://api.${domainName}`;
     const usgsMcpUrl = `https://usgs-mcp.${domainName}/mcp`;
     const schedulerMcpUrl = `https://scheduler-mcp.${domainName}/mcp`;
+    // The Webhook Receiver origin (WebhookReceiverStack owns this custom
+    // domain). The handler supplies it as each subscription's `delivery.url` on
+    // events/subscribe and appends the `/webhook` path itself, so pass the
+    // origin only. Deterministic, so it is an environment variable rather than a
+    // cross-stack import (same approach as the other URLs above).
+    const webhookUrl = `https://webhook.${domainName}`;
 
     // --- Lambda handler -------------------------------------------------------
     // Compiled stack lives at packages/cdk/dist/lib, so walk up to the repo's
@@ -99,6 +105,7 @@ export class SubscriptionManagerStack extends cdk.Stack {
         DATA_API_URL: dataApiUrl,
         USGS_MCP_URL: usgsMcpUrl,
         SCHEDULER_MCP_URL: schedulerMcpUrl,
+        WEBHOOK_URL: webhookUrl,
       },
     });
 
