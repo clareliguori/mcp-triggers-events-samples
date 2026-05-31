@@ -2,6 +2,7 @@
   "name": "@mcp-events/scheduler-server",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "description": "MCP Server 2 — Message Scheduler (Lambda)",
   "main": "dist/handler.js",
   "scripts": {
@@ -9,12 +10,16 @@
     "clean": "tsc --build --clean"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "3.1056.0",
+    "@aws-sdk/client-kms": "3.1056.0",
+    "@aws-sdk/lib-dynamodb": "3.1056.0",
     "@mcp-events/shared": "0.0.1",
     "@modelcontextprotocol/sdk": "*",
     "standardwebhooks": "*",
     "zod": "*"
   },
   "devDependencies": {
-    "@types/aws-lambda": "8.10.147"
+    "@types/aws-lambda": "8.10.147",
+    "aws-sdk-client-mock": "4.1.0"
   }
 }

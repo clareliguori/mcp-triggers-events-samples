@@ -165,8 +165,8 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 17.9, 19.2_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/webhook-receiver/src/handler.ts`_
 
-- [ ] 6. MCP Server 1 — USGS Earthquake Feed
-  - [ ] 6.1 Implement USGS feed polling and cursor-based deduplication
+- [x] 6. MCP Server 1 — USGS Earthquake Feed
+  - [x] 6.1 Implement USGS feed polling and cursor-based deduplication
     - Create `packages/usgs-server/src/poller.ts` with USGS GeoJSON fetch, earthquake extraction, and cursor comparison logic
     - Read cursor state from DynamoDB, compare earthquake IDs against `lastSeenIds`
     - Update cursor atomically after successful emission
@@ -174,26 +174,26 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 1.1, 1.4, 1.6_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/usgs-server/src/poller.ts`_
 
-  - [ ] 6.2 Write property test for earthquake deduplication (Property 3)
+  - [x] 6.2 Write property test for earthquake deduplication (Property 3)
     - **Property 3: Earthquake Deduplication (Cursor Integrity)**
     - Generate arbitrary sequences of poll results with overlapping IDs, verify each earthquake emitted at most once per subscription
     - **Validates: Requirements 1.1, 1.4, 1.6**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [ ] 6.3 Implement per-subscription earthquake filtering
+  - [x] 6.3 Implement per-subscription earthquake filtering
     - Create `packages/usgs-server/src/filter.ts` with filter logic: magnitude >= minMagnitude, region match, depth <= maxDepthKm
     - When no filter params set, deliver all earthquakes
     - Iterate over all active subscriptions for each new earthquake
     - _Requirements: 1.2, 1.5, 12.1, 12.2, 12.3, 12.4_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/usgs-server/src/filter.ts`_
 
-  - [ ] 6.4 Write property test for per-customer earthquake filtering (Property 4)
+  - [x] 6.4 Write property test for per-customer earthquake filtering (Property 4)
     - **Property 4: Per-Customer Earthquake Filtering**
     - Generate arbitrary earthquakes and subscription filter params, verify delivery decision matches filter criteria exactly
     - **Validates: Requirements 1.2, 1.5, 12.1, 12.2, 12.3, 12.4**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [ ] 6.5 Implement MCP Server 1 Lambda handler with webhook delivery
+  - [x] 6.5 Implement MCP Server 1 Lambda handler with webhook delivery
     - Create `packages/usgs-server/src/handler.ts` with dual-trigger handler (EventBridge for polling, API Gateway for MCP protocol)
     - Implement `events/list`, `events/subscribe`, `events/unsubscribe` MCP methods
     - On `events/subscribe`, store the client-supplied `delivery.secret` (the `whsec_` value) on the subscription record; the server does NOT generate or own a per-server secret
@@ -204,20 +204,20 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 1.3, 14.1, 14.3, 14.4, 14.5, 15.1, 17.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/usgs-server/src/handler.ts`_
 
-- [ ] 7. MCP Server 2 — Message Scheduler
-  - [ ] 7.1 Implement cron schedule evaluation
+- [x] 7. MCP Server 2 — Message Scheduler
+  - [x] 7.1 Implement cron schedule evaluation
     - Create `packages/scheduler-server/src/scheduler.ts` with cron expression parsing and evaluation against current time
     - Iterate over all active subscriptions, check which customers are due for briefing
     - _Requirements: 2.1, 2.3_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/scheduler-server/src/scheduler.ts`_
 
-  - [ ] 7.2 Write property test for cron schedule evaluation (Property 13)
+  - [x] 7.2 Write property test for cron schedule evaluation (Property 13)
     - **Property 13: Cron Schedule Evaluation**
     - Generate arbitrary timestamps and cron expressions, verify trigger fires if and only if cron matches current time
     - **Validates: Requirements 2.1, 2.3**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [ ] 7.3 Implement MCP Server 2 Lambda handler with webhook delivery
+  - [x] 7.3 Implement MCP Server 2 Lambda handler with webhook delivery
     - Create `packages/scheduler-server/src/handler.ts` with dual-trigger handler (EventBridge for schedule check, API Gateway for MCP protocol + manual trigger)
     - Implement `events/list`, `events/subscribe`, `events/unsubscribe` MCP methods
     - On `events/subscribe`, store the client-supplied `delivery.secret` (the `whsec_` value) on the subscription record; the server does NOT generate or own a per-server secret
@@ -227,7 +227,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 2.2, 2.4, 14.2, 14.3, 14.4, 14.5, 17.5_
     - _Validation: `npx tsc --noEmit` compiles without errors; `npx vitest run` passes unit tests for the handler; `npx eslint packages/scheduler-server/src/handler.ts`_
 
-  - [ ] 7.4 Write property test for subscription creation response validity (Property 14)
+  - [x] 7.4 Write property test for subscription creation response validity (Property 14)
     - **Property 14: Subscription Creation Response Validity**
     - For any valid events/subscribe request, verify response contains valid UUID subscriptionId and expiresAt in the future
     - **Validates: Requirement 14.3**
