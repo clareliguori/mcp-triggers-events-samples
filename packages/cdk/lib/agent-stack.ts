@@ -90,6 +90,22 @@ export class AgentStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // --- SQS: Webhook Receiver queue + dead-letter queue ---------------------
+    // The Webhook Receiver owns both queues and exports their ARNs. The agent
+    // consumes the main queue (event source below) and sends permanently
+    // un-routable events to the DLQ for investigation rather than burning the
+    // SQS retry budget (Requirement 15.6, design Error Scenario 9).
+    const eventQueue = sqs.Queue.fromQueueArn(
+      this,
+      "WebhookEventQueue",
+      cdk.Fn.importValue("EarthquakeAgent-WebhookQueueArn"),
+    );
+    const deadLetterQueue = sqs.Queue.fromQueueArn(
+      this,
+      "WebhookDeadLetterQueue",
+      cdk.Fn.importValue("EarthquakeAgent-WebhookDeadLetterQueueArn"),
+    );
+
     // --- Lambda handler -------------------------------------------------------
     // Compiled stack lives at packages/cdk/dist/lib, so walk up to the repo's
     // packages/ directory to reach the agent source and up to the repo root for
@@ -115,19 +131,15 @@ export class AgentStack extends cdk.Stack {
         SESSIONS_BUCKET_NAME: sessionsBucket.bucketName,
         SESSION_LOCKS_TABLE_NAME: sessionLocksTable.tableName,
         DATA_API_URL: dataApiUrl,
+        DEAD_LETTER_QUEUE_URL: deadLetterQueue.queueUrl,
       },
     });
 
     // --- SQS event source (batch size 1) -------------------------------------
-    // Import the Webhook Receiver queue by ARN and attach it as the agent's
-    // trigger. Batch size 1 ensures one event per Lambda invocation
-    // (Requirement 19.4); report batch item failures so a failed message
-    // returns to the queue and eventually the DLQ (Requirement 15.2).
-    const eventQueue = sqs.Queue.fromQueueArn(
-      this,
-      "WebhookEventQueue",
-      cdk.Fn.importValue("EarthquakeAgent-WebhookQueueArn"),
-    );
+    // Attach the imported Webhook Receiver queue as the agent's trigger. Batch
+    // size 1 ensures one event per Lambda invocation (Requirement 19.4); report
+    // batch item failures so a failed message returns to the queue and
+    // eventually the DLQ (Requirement 15.2).
     handlerFn.addEventSource(
       new SqsEventSource(eventQueue, {
         batchSize: 1,
@@ -139,6 +151,11 @@ export class AgentStack extends cdk.Stack {
     // The agent owns its session bucket and lock table directly.
     sessionsBucket.grantReadWrite(handlerFn);
     sessionLocksTable.grantReadWriteData(handlerFn);
+
+    // Send-only access to the DLQ for the explicit dead-lettering path above
+    // (Requirement 15.6). Its URL is passed to the handler via
+    // DEAD_LETTER_QUEUE_URL.
+    deadLetterQueue.grantSendMessages(handlerFn);
 
     // execute-api:Invoke on the Data API so the agent can resolve
     // subscriptionId -> customerId and load CustomerConfig via SigV4-signed
