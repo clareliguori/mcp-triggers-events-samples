@@ -22,8 +22,13 @@
 
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
+import type { FunctionOptions, Runtime } from "aws-cdk-lib/aws-lambda";
 import type { Construct } from "constructs";
 import { describe, it, vi } from "vitest";
+
+import { SchedulerServerStack } from "./scheduler-server-stack.js";
+import { DEFAULT_PARENT_DOMAIN, DEFAULT_SUBDOMAIN } from "./shared-props.js";
+import { UsgsServerStack } from "./usgs-server-stack.js";
 
 /**
  * Replace `NodejsFunction` with a lightweight inline-code Lambda for synth.
@@ -61,8 +66,8 @@ vi.mock("aws-cdk-lib/aws-lambda-nodejs", async () => {
         ...rest
       } = props;
       super(scope, id, {
-        ...(rest as lambda.FunctionOptions),
-        runtime: (runtime as lambda.Runtime) ?? lambda.Runtime.NODEJS_20_X,
+        ...(rest as FunctionOptions),
+        runtime: (runtime as Runtime) ?? lambda.Runtime.NODEJS_20_X,
         handler: "index.handler",
         code: lambda.Code.fromInline("exports.handler = async () => {};"),
       });
@@ -70,11 +75,6 @@ vi.mock("aws-cdk-lib/aws-lambda-nodejs", async () => {
   }
   return { NodejsFunction };
 });
-
-const { SchedulerServerStack } = await import("./scheduler-server-stack.js");
-const { DEFAULT_PARENT_DOMAIN, DEFAULT_SUBDOMAIN } =
-  await import("./shared-props.js");
-const { UsgsServerStack } = await import("./usgs-server-stack.js");
 
 /** A concrete synth environment (Route53/ACM imports need account + region). */
 const env: cdk.Environment = {
