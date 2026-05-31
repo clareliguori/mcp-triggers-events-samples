@@ -336,7 +336,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - **Validates: Requirements 8.2, 8.5, 15.3**
     - _Validation: `npx vitest run <test-file>` passes all property tests; tests generate at least 100 random inputs_
 
-  - [-] 10.4 Implement Subscription Manager Lambda handler
+  - [x] 10.4 Implement Subscription Manager Lambda handler
     - Create `packages/subscription-manager/src/handler.ts` with dual-trigger handler (DynamoDB Stream + EventBridge)
     - Detect trigger source and route to registration or refresh logic
     - Wire MCP client connections using `@aws/run-mcp-servers-with-aws-lambda` StreamableHTTPClientWithSigV4Transport

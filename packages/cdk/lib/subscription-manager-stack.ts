@@ -51,10 +51,9 @@ export type SubscriptionManagerStackProps = cdk.StackProps & SharedProps;
  * (same approach the MCP server stacks use for the webhook URL).
  *
  * HANDLER NOTE: The Lambda handler lives in the @mcp-events/subscription-manager
- * package (subtask 10.4 creates src/handler.ts). It is not implemented yet, so
- * the NodejsFunction entry points at the existing placeholder src/index.ts so
- * this stack synthesizes today. Subtask 10.4 should repoint `entry` to
- * src/handler.ts.
+ * package (src/handler.ts, subtask 10.4). The NodejsFunction `entry` points at
+ * that module's exported `handler`, a dual-trigger entry point that routes
+ * DynamoDB Stream events to registration and EventBridge ticks to refresh.
  */
 export class SubscriptionManagerStack extends cdk.Stack {
   constructor(
@@ -84,7 +83,7 @@ export class SubscriptionManagerStack extends cdk.Stack {
     );
     const handlerFn = new NodejsFunction(this, "SubscriptionManagerHandler", {
       runtime: lambda.Runtime.NODEJS_20_X,
-      entry: path.join(subscriptionManagerPackageRoot, "src", "index.ts"),
+      entry: path.join(subscriptionManagerPackageRoot, "src", "handler.ts"),
       handler: "handler",
       memorySize: 256,
       timeout: cdk.Duration.seconds(60),
