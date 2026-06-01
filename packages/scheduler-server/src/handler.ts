@@ -394,6 +394,7 @@ const mcpHandler = createMcpRequestHandler({
   eventType: BRIEFING_EVENT_TYPE,
   eventName: EVENT_NAME_BRIEFING_TRIGGER,
   serverEndpoint: serverEndpoint("https://scheduler-mcp.earthquake-agent"),
+  serverName: "scheduler-briefing",
   mapInputSchema: (inputSchema) =>
     inputSchema?.schedule !== undefined
       ? { schedule: inputSchema.schedule }

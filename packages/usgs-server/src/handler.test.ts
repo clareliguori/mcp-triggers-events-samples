@@ -232,6 +232,85 @@ describe("events/list", () => {
 });
 
 // ---------------------------------------------------------------------------
+// MCP lifecycle (initialize / notifications/initialized / ping)
+// ---------------------------------------------------------------------------
+
+describe("MCP lifecycle handshake", () => {
+  /** Assert the handler returned an HTTP result (not void) and narrow it. */
+  function expectHttp(
+    res: APIGatewayProxyResult | void,
+  ): APIGatewayProxyResult {
+    if (!res) {
+      throw new Error("expected an HTTP result");
+    }
+    return res;
+  }
+
+  it("answers initialize with a negotiated protocol version and serverInfo", async () => {
+    const res = expectHttp(
+      await handler(
+        makeApiEvent({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "subscription-manager", version: "1.0.0" },
+          },
+        }),
+      ),
+    );
+
+    expect(res.statusCode).toBe(200);
+    const { result } = parseRpc(res);
+    // Echoes the client's requested version when supported.
+    expect(result.protocolVersion).toBe("2025-06-18");
+    expect(result.capabilities).toBeDefined();
+    expect(typeof result.serverInfo.name).toBe("string");
+    expect(typeof result.serverInfo.version).toBe("string");
+  });
+
+  it("falls back to a default protocol version for an unknown requested version", async () => {
+    const res = await handler(
+      makeApiEvent({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "initialize",
+        params: { protocolVersion: "1999-01-01" },
+      }),
+    );
+
+    const { result } = parseRpc(res);
+    expect(result.protocolVersion).toBe("2025-03-26");
+  });
+
+  it("accepts the initialized notification with HTTP 202 and no body", async () => {
+    const res = expectHttp(
+      await handler(
+        makeApiEvent({
+          jsonrpc: "2.0",
+          method: "notifications/initialized",
+        }),
+      ),
+    );
+
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toBe("");
+  });
+
+  it("answers ping with an empty result", async () => {
+    const res = await handler(
+      makeApiEvent({ jsonrpc: "2.0", id: 3, method: "ping" }),
+    );
+
+    const { result, error } = parseRpc(res);
+    expect(error).toBeUndefined();
+    expect(result).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
 // events/subscribe
 // ---------------------------------------------------------------------------
 

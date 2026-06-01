@@ -228,6 +228,7 @@ const mcpHandler = createMcpRequestHandler({
   eventType: EARTHQUAKE_EVENT_TYPE,
   eventName: EVENT_NAME_EARTHQUAKE_DETECTED,
   serverEndpoint: serverEndpoint("https://usgs-mcp.earthquake-agent"),
+  serverName: "usgs-earthquake-feed",
   mapInputSchema: (inputSchema) => {
     const filter: SubscriptionParams = {};
     if (inputSchema?.minMagnitude !== undefined) {

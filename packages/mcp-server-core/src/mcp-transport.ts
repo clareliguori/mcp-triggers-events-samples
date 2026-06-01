@@ -72,6 +72,35 @@ export function jsonRpcErrorResponse(
   };
 }
 
+/**
+ * Build the response to a JSON-RPC notification (a request with no `id`). The
+ * Streamable HTTP transport expects HTTP 202 Accepted with no body for an
+ * accepted notification, so return exactly that.
+ */
+export function jsonRpcAccepted(): APIGatewayProxyResult {
+  return { statusCode: 202, headers: {}, body: "" };
+}
+
+/**
+ * The MCP protocol version this server negotiates by default when the client's
+ * requested version is unknown. Pinned to a broadly-supported stable version.
+ */
+export const DEFAULT_MCP_PROTOCOL_VERSION = "2025-03-26";
+
+/**
+ * Protocol versions this transport understands. The server echoes the client's
+ * requested version when it is one of these (so the client's
+ * SUPPORTED_PROTOCOL_VERSIONS check passes), otherwise it falls back to
+ * {@link DEFAULT_MCP_PROTOCOL_VERSION}.
+ */
+export const SUPPORTED_MCP_PROTOCOL_VERSIONS: readonly string[] = [
+  "2025-11-25",
+  "2025-06-18",
+  "2025-03-26",
+  "2024-11-05",
+  "2024-10-07",
+];
+
 /** Read the raw request body, decoding API Gateway base64 bodies. */
 export function readRawBody(event: APIGatewayProxyEvent): string {
   if (event.body === null || event.body === undefined) {
@@ -157,6 +186,11 @@ export interface McpServerConfig {
   mapInputSchema: (
     inputSchema: SubscribeParamsInput["inputSchema"],
   ) => Record<string, unknown>;
+  /**
+   * Identifying name reported in the MCP `initialize` handshake's `serverInfo`.
+   * Defaults to a generic name when omitted.
+   */
+  serverName?: string;
 }
 
 /**
@@ -172,6 +206,46 @@ export function createMcpRequestHandler(
   /** Handle `events/list` (Requirement 14.1/14.2). */
   function handleEventsList(id: JsonRpcId): APIGatewayProxyResult {
     return jsonRpcResult(id, { eventTypes: [config.eventType] });
+  }
+
+  /**
+   * Handle the MCP `initialize` handshake. The MCP SDK client (used by the
+   * Subscription Manager via StreamableHTTPClientWithSigV4Transport) calls
+   * `initialize` as the first request when it connects, before any
+   * `events/subscribe`; without this the connection fails with
+   * "Unknown method initialize" and no subscription is ever created.
+   *
+   * The server echoes the client's requested protocol version when it is one it
+   * understands (so the client's own supported-versions check passes) and
+   * otherwise negotiates {@link DEFAULT_MCP_PROTOCOL_VERSION}. Capabilities are
+   * intentionally minimal: this is an MCP Events server, so it advertises no
+   * tools/resources/prompts.
+   */
+  function handleInitialize(
+    id: JsonRpcId,
+    params: unknown,
+  ): APIGatewayProxyResult {
+    const requested =
+      typeof params === "object" &&
+      params !== null &&
+      typeof (params as { protocolVersion?: unknown }).protocolVersion ===
+        "string"
+        ? (params as { protocolVersion: string }).protocolVersion
+        : undefined;
+
+    const protocolVersion =
+      requested && SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(requested)
+        ? requested
+        : DEFAULT_MCP_PROTOCOL_VERSION;
+
+    return jsonRpcResult(id, {
+      protocolVersion,
+      capabilities: {},
+      serverInfo: {
+        name: config.serverName ?? "mcp-events-server",
+        version: "1.0.0",
+      },
+    });
   }
 
   /**
@@ -294,7 +368,22 @@ export function createMcpRequestHandler(
       );
     }
 
+    // JSON-RPC notifications (no `id`) get no result body. The MCP lifecycle
+    // sends `notifications/initialized` after a successful initialize; the
+    // Streamable HTTP transport expects HTTP 202 Accepted for any accepted
+    // notification, so acknowledge every notification that way.
+    const isNotification = request.id === undefined || request.id === null;
+    if (request.method.startsWith("notifications/") && isNotification) {
+      return jsonRpcAccepted();
+    }
+
     switch (request.method) {
+      case "initialize":
+        return handleInitialize(id, request.params);
+      case "ping":
+        // Liveness check defined by the MCP base protocol — reply with an
+        // empty result so SDK clients' keepalive pings succeed.
+        return jsonRpcResult(id, {});
       case "events/list":
         return handleEventsList(id);
       case "events/subscribe":
