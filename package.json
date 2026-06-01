@@ -15,7 +15,8 @@
     "packages/webhook-receiver",
     "packages/agent",
     "packages/subscription-manager",
-    "packages/webapp"
+    "packages/webapp",
+    "packages/integration-tests"
   ],
   "scripts": {
     "build": "tsc --build",

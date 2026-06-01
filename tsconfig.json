@@ -9,6 +9,7 @@
     { "path": "./packages/scheduler-server" },
     { "path": "./packages/webhook-receiver" },
     { "path": "./packages/agent" },
-    { "path": "./packages/subscription-manager" }
+    { "path": "./packages/subscription-manager" },
+    { "path": "./packages/integration-tests" }
   ]
 }

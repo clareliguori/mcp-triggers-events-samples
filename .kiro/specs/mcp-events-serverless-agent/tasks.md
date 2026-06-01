@@ -399,7 +399,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 13.5, 17.3_
     - _Validation: `npx cdk synth` succeeds for all stacks with no circular dependency errors; `npx tsc --noEmit` compiles across entire monorepo_
 
-  - [ ] 13.2 Write integration tests for end-to-end event flow
+  - [x] 13.2 Write integration tests for end-to-end event flow
     - Test customer registration flow: create config → verify subscriptions created on both servers
     - Test earthquake event flow: POST simulated earthquake → verify accumulation in correct customer session
     - Test briefing trigger flow: trigger briefing → verify report written to S3

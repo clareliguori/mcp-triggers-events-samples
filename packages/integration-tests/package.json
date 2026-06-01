@@ -1,0 +1,21 @@
+{
+  "name": "@mcp-events/integration-tests",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end integration tests that exercise a deployed MCP Events Serverless Agent stack",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-crypto/sha256-js": "5.2.0",
+    "@aws-sdk/client-s3": "3.1056.0",
+    "@aws-sdk/client-sqs": "3.1056.0",
+    "@aws-sdk/credential-provider-node": "3.972.46",
+    "@mcp-events/shared": "0.0.1",
+    "@smithy/signature-v4": "5.4.5",
+    "@smithy/types": "4.14.2"
+  }
+}
