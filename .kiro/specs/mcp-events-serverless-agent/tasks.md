@@ -370,7 +370,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 10.3_
     - _Validation: `npm run build` succeeds (SvelteKit static build); `npm run check` passes (svelte-check for type errors); visual inspection: `npm run dev` and verify UI renders correctly_
 
-  - [ ] 12.4 Implement reports view and manual trigger
+  - [x] 12.4 Implement reports view and manual trigger
     - Create reports list page calling `GET /customers/:customerId/reports`
     - Create report detail view calling `GET /customers/:customerId/reports/:reportId`
     - Add "Trigger Briefing Now" button calling `POST /trigger-briefing/:customerId`
