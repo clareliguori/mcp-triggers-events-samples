@@ -28,6 +28,7 @@ import { mockClient } from "aws-sdk-client-mock";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { handler } from "./handler.js";
+import { setDocumentClientForTesting as setConfigDocumentClientForTesting } from "./routes/config.js";
 import { setS3ClientForTesting as setReportsS3ClientForTesting } from "./routes/reports.js";
 import { setS3ClientForTesting } from "./routes/session.js";
 import {
@@ -54,12 +55,14 @@ afterEach(() => {
   kmsMock.reset();
   setS3ClientForTesting(undefined);
   setReportsS3ClientForTesting(undefined);
+  setConfigDocumentClientForTesting(undefined);
   setSubscriptionsDocumentClientForTesting(undefined);
   setSubscriptionsKmsClientForTesting(undefined);
   delete process.env.SESSIONS_BUCKET_NAME;
   delete process.env.REPORTS_BUCKET_NAME;
   delete process.env.SUBSCRIPTIONS_TABLE_NAME;
   delete process.env.SUBSCRIPTION_SECRET_KEY_ID;
+  delete process.env.CUSTOMER_CONFIG_TABLE_NAME;
 });
 
 interface EventOptions {
@@ -240,6 +243,52 @@ describe("Data API handler — IAM authorization", () => {
     );
     expect(res.statusCode).toBe(200); // matched + authorized + dispatched
     expect(JSON.parse(res.body)).toMatchObject({ customerId: SUB });
+  });
+  it("allows an IAM caller to read any customer's config via the backend path", async () => {
+    // The backend config path (/backend/customers/:customerId/config) is
+    // declared with IAM auth in the CDK stack and reuses the config GET
+    // handler. A backend (agent) caller may read any customer's config
+    // (Requirement 9.3); the webapp path stays Cognito-only.
+    process.env.CUSTOMER_CONFIG_TABLE_NAME = "test-customer-config";
+    setConfigDocumentClientForTesting(
+      DynamoDBDocumentClient.from(new DynamoDBClient({})),
+    );
+    const stored = {
+      customerId: OTHER,
+      displayName: "Acme Seismology",
+      subscriptionParams: { minMagnitude: 4.5, region: "pacific" },
+      briefingPrompt: "Summarize notable earthquakes for the Pacific region.",
+      briefingSchedule: "0 8 * * 1",
+      active: true,
+      createdAt: "2024-01-01T00:00:00.000Z",
+      updatedAt: "2024-01-01T00:00:00.000Z",
+    };
+    ddbMock.on(GetCommand).resolves({ Item: stored });
+
+    const res = await handler(
+      makeEvent({
+        method: "GET",
+        path: `/backend/customers/${OTHER}/config`,
+        iamArn: AGENT_ARN,
+      }),
+    );
+    expect(res.statusCode).toBe(200); // matched + authorized + dispatched
+    expect(JSON.parse(res.body)).toMatchObject({ customerId: OTHER });
+  });
+
+  it("rejects a Cognito caller targeting another customer on the backend config path with 403", async () => {
+    // At the API Gateway layer this backend path is IAM-only, so a Cognito JWT
+    // bearer never reaches the Lambda. At the Lambda layer the route is still
+    // customerScoped, so a cross-customer access attempt is rejected by
+    // enforceCustomerAccess with 403 (Requirements 5.3, 9.2).
+    const res = await handler(
+      makeEvent({
+        method: "GET",
+        path: `/backend/customers/${OTHER}/config`,
+        cognitoSub: SUB,
+      }),
+    );
+    expect(res.statusCode).toBe(403);
   });
 });
 

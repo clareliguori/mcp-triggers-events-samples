@@ -78,6 +78,17 @@ export type DataApiStackProps = cdk.StackProps & SharedProps;
  *   to the IAM proxy. Both authorizer mechanisms therefore protect the same
  *   API. The handler (subtask 4.1) inspects `requestContext` to distinguish the
  *   caller type and enforce per-customer access rules.
+ *
+ * Because explicit resources win over `{proxy+}`, a backend SigV4 caller that
+ * needs to read a resource exposed to the webapp under Cognito CANNOT reach it
+ * through the IAM proxy — the explicit Cognito method intercepts the path and
+ * rejects the unsigned-by-Cognito request with 401. Backend reads of such
+ * resources are therefore given their own explicit IAM-authorized path under a
+ * `/backend/...` namespace (for example `GET /backend/customers/{customerId}/
+ * config`, which the Serverless Agent calls to load a customer's config). The
+ * webapp keeps the Cognito `/customers/{customerId}/config` route untouched,
+ * and the backend path resolves to the same handler logic in the Data API
+ * Lambda.
  */
 export class DataApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: DataApiStackProps) {
@@ -334,6 +345,7 @@ export class DataApiStack extends cdk.Stack {
     //   /customers/{customerId}/reports           GET (Cognito), POST (IAM)
     //   /customers/{customerId}/reports/{reportId}GET             (Cognito)
     //   /customers/{customerId}/session/messages  GET             (Cognito)
+    //   /backend/customers/{customerId}/config    GET             (IAM)
     //   /subscriptions/{subscriptionId}           GET/PUT         (IAM)
     //   /trigger-briefing/{customerId}            POST            (Cognito)
     //   /{proxy+}                                 ANY             (IAM fallback)
@@ -367,6 +379,20 @@ export class DataApiStack extends cdk.Stack {
     const triggerBriefing = api.root.addResource("trigger-briefing");
     const triggerBriefingCustomer = triggerBriefing.addResource("{customerId}");
     triggerBriefingCustomer.addMethod("POST", integration, cognitoAuth);
+
+    // Explicit IAM-authorized backend route for the Serverless Agent to read a
+    // customer's config (Requirements 9.3, 17.7). The webapp-facing
+    // /customers/{customerId}/config route is Cognito-only, and because
+    // explicit resources win over {proxy+}, a SigV4-signed backend read of that
+    // path would hit the Cognito method and be rejected with 401. Giving the
+    // backend its own explicit IAM path under /backend keeps it unambiguous and
+    // testable, consistent with the existing "webapp = Cognito, backend = IAM"
+    // split. It resolves to the same config GET handler in the Data API Lambda.
+    const backend = api.root.addResource("backend");
+    const backendCustomers = backend.addResource("customers");
+    const backendCustomer = backendCustomers.addResource("{customerId}");
+    const backendConfig = backendCustomer.addResource("config");
+    backendConfig.addMethod("GET", integration, iamAuth);
 
     // IAM-authorized greedy fallback so backend SigV4 callers have an
     // IAM-protected path across the rest of the API surface (see the

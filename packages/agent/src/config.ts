@@ -5,10 +5,19 @@
  * `customerId`, the handler needs that customer's {@link CustomerConfig}
  * (`briefingPrompt`, `displayName`, ...) before it can build the agent and
  * process the event (Requirements 4.4, 4.5, 11.2). The config lives in the Data
- * API, so this module loads it with `GET /customers/{customerId}/config` over
- * an IAM SigV4-signed HTTPS request — the same signing approach the router's
- * subscription lookup uses (Requirement 17.7). Factoring it here keeps the
- * handler thin and mirrors the `SubscriptionLookup` test seam in `router.ts`.
+ * API, so this module loads it with `GET /backend/customers/{customerId}/config`
+ * over an IAM SigV4-signed HTTPS request — the same signing approach the
+ * router's subscription lookup uses (Requirement 17.7). Factoring it here keeps
+ * the handler thin and mirrors the `SubscriptionLookup` test seam in
+ * `router.ts`.
+ *
+ * The backend `/backend/...` path is used (rather than the webapp-facing
+ * `/customers/{customerId}/config`) because that webapp route is fronted by the
+ * Cognito authorizer, and in API Gateway explicit resources take routing
+ * precedence over the IAM `{proxy+}` fallback. A SigV4-signed read of the
+ * Cognito path is therefore intercepted by the Cognito method and rejected with
+ * 401; the dedicated IAM `/backend/customers/{customerId}/config` route resolves
+ * to the same config GET handler in the Data API.
  *
  * Error handling (design Error Scenario 8): a `customerId` with no config (the
  * Data API returns 404) is treated as **handled, not retryable** — the customer
@@ -39,7 +48,7 @@ export interface ConfigLookupResult {
 
 /**
  * Loads a customer's config from the Data API. The production implementation
- * SigV4-signs `GET /customers/{customerId}/config` and delivers it with
+ * SigV4-signs `GET /backend/customers/{customerId}/config` and delivers it with
  * `fetch`; tests override it via {@link setConfigLookupForTesting} so they never
  * sign or hit the network.
  */
@@ -56,7 +65,7 @@ function dataApiUrl(): string {
 }
 
 /**
- * SigV4-sign `GET {DATA_API_URL}/customers/{customerId}/config` for the
+ * SigV4-sign `GET {DATA_API_URL}/backend/customers/{customerId}/config` for the
  * `execute-api` service and deliver it with the shared {@link signedFetch}
  * helper. Credentials come from the Lambda execution role via the default
  * provider chain. The Data API returns the {@link CustomerConfig} as JSON
@@ -64,7 +73,7 @@ function dataApiUrl(): string {
  */
 const defaultLookup: ConfigLookup = async (customerId) => {
   const baseUrl = dataApiUrl().replace(/\/+$/, "");
-  const target = `${baseUrl}/customers/${encodeURIComponent(customerId)}/config`;
+  const target = `${baseUrl}/backend/customers/${encodeURIComponent(customerId)}/config`;
 
   return signedFetch({
     method: "GET",

@@ -33,6 +33,7 @@ const table: RouteDefinition[] = [
   def("GET", "/customers/:customerId/reports"),
   def("GET", "/customers/:customerId/config"),
   def("PUT", "/customers/:customerId/config"),
+  def("GET", "/backend/customers/:customerId/config"),
   def("GET", "/subscriptions/:subscriptionId"),
 ];
 
@@ -98,6 +99,23 @@ describe("matchRoute", () => {
     expect(match?.params).toEqual({ subscriptionId: "sub with space" });
   });
 
+  it("matches the backend config path and captures the customerId", () => {
+    const match = matchRoute(table, "GET", "/backend/customers/abc/config");
+    expect(match?.route.pattern).toBe("/backend/customers/:customerId/config");
+    expect(match?.params).toEqual({ customerId: "abc" });
+  });
+
+  it("does not confuse the backend config path with the webapp config path", () => {
+    // The webapp path has 3 segments; the backend path has 4. Segment-count
+    // exactness keeps them distinct.
+    const webapp = matchRoute(table, "GET", "/customers/abc/config");
+    const backend = matchRoute(table, "GET", "/backend/customers/abc/config");
+    expect(webapp?.route.pattern).toBe("/customers/:customerId/config");
+    expect(backend?.route.pattern).toBe(
+      "/backend/customers/:customerId/config",
+    );
+  });
+
   it("returns null when nothing matches", () => {
     expect(matchRoute(table, "GET", "/nope")).toBeNull();
   });
@@ -107,6 +125,9 @@ describe("isCustomerScoped", () => {
   it("is true for patterns containing :customerId", () => {
     expect(isCustomerScoped("/customers/:customerId/config")).toBe(true);
     expect(isCustomerScoped("/customers/:customerId/reports/:reportId")).toBe(
+      true,
+    );
+    expect(isCustomerScoped("/backend/customers/:customerId/config")).toBe(
       true,
     );
   });

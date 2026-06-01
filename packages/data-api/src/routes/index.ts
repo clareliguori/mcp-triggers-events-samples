@@ -50,6 +50,17 @@ export const routes: RouteDefinition[] = [
   route("PUT", "/customers/:customerId/config", putConfig),
   route("DELETE", "/customers/:customerId/config", deleteConfig),
 
+  // --- Backend config read (IAM) ------------------------------------------
+  // The Serverless Agent reads a customer's config over IAM SigV4. The webapp
+  // /customers/:customerId/config route above is Cognito-only, and in API
+  // Gateway explicit resources win over the {proxy+} fallback, so a signed
+  // backend read of that path is intercepted by the Cognito method and 401s.
+  // This explicit backend path is declared with IAM auth in the CDK stack and
+  // reuses the same getConfig handler. It is customerScoped (contains
+  // :customerId), so enforceCustomerAccess applies — IAM callers may read any
+  // customer (Requirement 9.3).
+  route("GET", "/backend/customers/:customerId/config", getConfig),
+
   // --- Reports ------------------------------------------------------------
   route("GET", "/customers/:customerId/reports/:reportId", getReport),
   route("GET", "/customers/:customerId/reports", listReports),
