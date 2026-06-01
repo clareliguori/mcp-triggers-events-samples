@@ -73,6 +73,7 @@ interface EventOptions {
   body?: string;
   isBase64Encoded?: boolean;
   query?: Record<string, string>;
+  origin?: string;
 }
 
 function makeEvent(opts: EventOptions): APIGatewayProxyEvent {
@@ -93,6 +94,7 @@ function makeEvent(opts: EventOptions): APIGatewayProxyEvent {
     body: opts.body ?? null,
     isBase64Encoded: opts.isBase64Encoded ?? false,
     queryStringParameters: opts.query ?? null,
+    headers: opts.origin === undefined ? {} : { origin: opts.origin },
     requestContext,
   } as unknown as APIGatewayProxyEvent;
 }
@@ -329,6 +331,41 @@ describe("Data API handler — response shape", () => {
       "https://app.example.com",
     );
     expect(res.headers?.["Access-Control-Allow-Credentials"]).toBe("true");
+  });
+
+  it("reflects an allowlisted localhost origin when configured", async () => {
+    process.env.ALLOWED_ORIGIN =
+      "https://app.example.com,http://localhost:5173";
+    try {
+      const res = await handler(
+        makeEvent({
+          method: "GET",
+          path: "/nope",
+          cognitoSub: SUB,
+          origin: "http://localhost:5173",
+        }),
+      );
+      expect(res.headers?.["Access-Control-Allow-Origin"]).toBe(
+        "http://localhost:5173",
+      );
+      expect(res.headers?.["Vary"]).toBe("Origin");
+    } finally {
+      process.env.ALLOWED_ORIGIN = "https://app.example.com";
+    }
+  });
+
+  it("does not reflect a disallowed origin (falls back to the primary origin)", async () => {
+    const res = await handler(
+      makeEvent({
+        method: "GET",
+        path: "/nope",
+        cognitoSub: SUB,
+        origin: "https://evil.example.com",
+      }),
+    );
+    expect(res.headers?.["Access-Control-Allow-Origin"]).toBe(
+      "https://app.example.com",
+    );
   });
 
   it("returns a JSON error body for 403 responses", async () => {

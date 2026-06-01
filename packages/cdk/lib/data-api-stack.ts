@@ -97,6 +97,25 @@ export class DataApiStack extends cdk.Stack {
     const domainName = resolveDomainName(props);
     const apiDomainName = `api.${domainName}`;
     const appOrigin = `https://app.${domainName}`;
+    // CORS allowlist. Production locks to the CloudFront webapp origin only
+    // (Requirement 17.2). For local development the webapp dev server (Vite,
+    // http://localhost:5173) can be added to the allowlist so it can call a
+    // deployed Data API from the browser. This is OPT-IN and OFF by default:
+    // enable it only for dev deploys with `-c allowLocalhostCors=true` (or set
+    // `allowLocalhostCors: true` in cdk.context.json). The localhost origin is
+    // never included unless explicitly requested, so the default deploy keeps
+    // the CloudFront-only posture.
+    const allowLocalhostCors =
+      this.node.tryGetContext("allowLocalhostCors") === true ||
+      this.node.tryGetContext("allowLocalhostCors") === "true";
+    const localhostOrigin = "http://localhost:5173";
+    const corsOrigins = allowLocalhostCors
+      ? [appOrigin, localhostOrigin]
+      : [appOrigin];
+    // The handler reads the allowlist from ALLOWED_ORIGIN as a comma-separated
+    // list and reflects the matching request origin (credentialed CORS cannot
+    // use a wildcard).
+    const allowedOriginEnv = corsOrigins.join(",");
     // MCP Server 2 (Message Scheduler) lives at a deterministic custom domain
     // created by SchedulerServerStack (subtask 2.4). The Data API Lambda's
     // manual-trigger route (subtask 4.5) calls it via IAM-signed HTTP, so we
@@ -239,7 +258,7 @@ export class DataApiStack extends cdk.Stack {
         REPORTS_BUCKET_NAME: reportsBucket.bucketName,
         SESSIONS_BUCKET_NAME: sessionsBucketName,
         COGNITO_USER_POOL_ID: userPool.userPoolId,
-        ALLOWED_ORIGIN: appOrigin,
+        ALLOWED_ORIGIN: allowedOriginEnv,
         SCHEDULER_MCP_URL: schedulerMcpUrl,
         SUBSCRIPTION_SECRET_KEY_ID: subscriptionSecretKey.keyArn,
       },
@@ -300,10 +319,11 @@ export class DataApiStack extends cdk.Stack {
         endpointType: apigateway.EndpointType.REGIONAL,
         securityPolicy: apigateway.SecurityPolicy.TLS_1_2,
       },
-      // CORS restricted to the CloudFront webapp origin only, with credentials
-      // enabled for the JWT bearer flow (Requirement 17.2). No wildcard origin.
+      // CORS restricted to the allowlist (CloudFront webapp origin, plus the
+      // localhost dev origin only when opted in), with credentials enabled for
+      // the JWT bearer flow (Requirement 17.2). No wildcard origin.
       defaultCorsPreflightOptions: {
-        allowOrigins: [appOrigin],
+        allowOrigins: corsOrigins,
         allowCredentials: true,
         allowMethods: apigateway.Cors.ALL_METHODS,
         allowHeaders: [

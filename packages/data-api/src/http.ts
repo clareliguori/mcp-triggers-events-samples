@@ -3,12 +3,23 @@
  * handlers throw to short-circuit with a specific status code, and helpers
  * for building API Gateway proxy responses with the correct CORS headers.
  *
- * The Data API restricts CORS to the CloudFront webapp origin only
- * (Requirement 17.2); the allowed origin is supplied via the `ALLOWED_ORIGIN`
- * environment variable by the CDK stack.
+ * The Data API restricts CORS to an allowlist of origins (Requirement 17.2).
+ * The allowlist is supplied via the `ALLOWED_ORIGIN` environment variable by
+ * the CDK stack as a comma-separated list. In production this is the single
+ * CloudFront webapp origin; for local development the stack can additionally
+ * include `http://localhost:5173` (opt-in via CDK context) so the webapp dev
+ * server can call a deployed Data API.
+ *
+ * Because responses set `Access-Control-Allow-Credentials: true`, the CORS spec
+ * forbids a wildcard `Access-Control-Allow-Origin`; a single concrete origin
+ * must be echoed back. We therefore reflect the request's `Origin` header when
+ * (and only when) it is on the allowlist, instead of emitting a fixed value.
  */
 
-import type { APIGatewayProxyResult } from "aws-lambda";
+import type {
+  APIGatewayProxyEventHeaders,
+  APIGatewayProxyResult,
+} from "aws-lambda";
 
 /**
  * An error carrying an HTTP status code. Route handlers (and the auth /
@@ -40,13 +51,60 @@ export function notFound(message = "Not Found"): HttpError {
   return new HttpError(404, message);
 }
 
-/** Base CORS headers shared by every response. */
-function corsHeaders(): Record<string, string> {
-  const allowedOrigin = process.env.ALLOWED_ORIGIN ?? "*";
+/** Parse the `ALLOWED_ORIGIN` env var into a list of allowed origins. */
+function allowedOrigins(): string[] {
+  return (process.env.ALLOWED_ORIGIN ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+}
+
+/** Case-insensitively read the request `Origin` header, if present. */
+function requestOrigin(
+  headers: APIGatewayProxyEventHeaders | undefined,
+): string | undefined {
+  if (!headers) {
+    return undefined;
+  }
+  for (const [name, value] of Object.entries(headers)) {
+    if (name.toLowerCase() === "origin" && typeof value === "string") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Base CORS headers shared by every response.
+ *
+ * Reflects the request `Origin` when it is on the allowlist (required because
+ * credentialed responses cannot use a wildcard origin). When there is no
+ * request origin (for example a SigV4 backend caller) or it is not allowed, the
+ * first configured origin is returned so browsers from disallowed origins are
+ * not granted access. Falls back to `*` only when no allowlist is configured
+ * (local unit tests without the env var set).
+ */
+function corsHeaders(
+  headers?: APIGatewayProxyEventHeaders,
+): Record<string, string> {
+  const origins = allowedOrigins();
+  const origin = requestOrigin(headers);
+
+  let allowOrigin: string;
+  if (origins.length === 0) {
+    allowOrigin = "*";
+  } else if (origin && origins.includes(origin)) {
+    allowOrigin = origin;
+  } else {
+    allowOrigin = origins[0];
+  }
+
   return {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Credentials": "true",
+    // Caches must vary on Origin since the allowed value is request-dependent.
+    Vary: "Origin",
   };
 }
 
@@ -54,10 +112,11 @@ function corsHeaders(): Record<string, string> {
 export function jsonResponse(
   statusCode: number,
   body?: unknown,
+  requestHeaders?: APIGatewayProxyEventHeaders,
 ): APIGatewayProxyResult {
   return {
     statusCode,
-    headers: corsHeaders(),
+    headers: corsHeaders(requestHeaders),
     body: body === undefined ? "" : JSON.stringify(body),
   };
 }
@@ -66,6 +125,7 @@ export function jsonResponse(
 export function errorResponse(
   statusCode: number,
   message: string,
+  requestHeaders?: APIGatewayProxyEventHeaders,
 ): APIGatewayProxyResult {
-  return jsonResponse(statusCode, { error: message });
+  return jsonResponse(statusCode, { error: message }, requestHeaders);
 }

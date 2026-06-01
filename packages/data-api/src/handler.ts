@@ -73,7 +73,7 @@ export async function handler(
     // CORS preflight is handled by API Gateway's MOCK integration, but answer
     // defensively if an OPTIONS request reaches the Lambda.
     if (method.toUpperCase() === "OPTIONS") {
-      return jsonResponse(204);
+      return jsonResponse(204, undefined, event.headers);
     }
 
     const path = event.path;
@@ -99,13 +99,13 @@ export async function handler(
     };
 
     const result = await route.handler(ctx);
-    return jsonResponse(result.statusCode, result.body);
+    return jsonResponse(result.statusCode, result.body, event.headers);
   } catch (error) {
     if (error instanceof HttpError) {
-      return errorResponse(error.statusCode, error.message);
+      return errorResponse(error.statusCode, error.message, event.headers);
     }
     // Avoid leaking internal error detail to callers; log for diagnostics.
     console.error("Unhandled Data API error", error);
-    return errorResponse(500, "Internal Server Error");
+    return errorResponse(500, "Internal Server Error", event.headers);
   }
 }
