@@ -1,0 +1,8 @@
+{
+  "cognito": {
+    "hostedUiDomain": "auth.earthquake-agent.<parentDomain>",
+    "clientId": "<UserPoolClientId from AuthStack EarthquakeAgent-UserPoolClientId>",
+    "scopes": ["openid", "email", "profile"]
+  },
+  "apiBaseUrl": "https://api.earthquake-agent.<parentDomain>"
+}

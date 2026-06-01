@@ -1,0 +1,8 @@
+{
+  "cognito": {
+    "hostedUiDomain": "auth.earthquake-agent.example.com",
+    "clientId": "local-dev-placeholder-client-id",
+    "scopes": ["openid", "email", "profile"]
+  },
+  "apiBaseUrl": "https://api.earthquake-agent.example.com"
+}

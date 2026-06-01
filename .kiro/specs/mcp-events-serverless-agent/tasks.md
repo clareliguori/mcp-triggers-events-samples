@@ -355,7 +355,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 10.1_
     - _Validation: `npm run build` succeeds (SvelteKit static build); `npm run check` passes (svelte-check for type errors); visual inspection: `npm run dev` and verify UI renders correctly_
 
-  - [ ] 12.2 Implement Cognito authentication flow
+  - [x] 12.2 Implement Cognito authentication flow
     - Create auth module with Cognito Hosted UI redirect flow (authorization code + PKCE)
     - Store JWT tokens in memory only (not localStorage)
     - Derive `customerId` from JWT `sub` claim
