@@ -29,7 +29,7 @@
         Customer ID: <code>{auth.customerId}</code>
       </p>
       <div class="flex flex-wrap items-center justify-center gap-2">
-        <Button>Configure monitoring</Button>
+        <Button href="/config">Configure monitoring</Button>
         <Button variant="outline">View reports</Button>
         <Button variant="ghost" onclick={() => void signOut()}>
           <LogOutIcon />

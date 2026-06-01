@@ -363,7 +363,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 10.1, 10.2, 10.6_
     - _Validation: `npm run build` succeeds (SvelteKit static build); `npm run check` passes (svelte-check for type errors); visual inspection: `npm run dev` and verify UI renders correctly_
 
-  - [ ] 12.3 Implement subscription configuration page
+  - [x] 12.3 Implement subscription configuration page
     - Create subscription config form with shadcn-svelte components (Input, Select, Button, Card)
     - Fields: displayName, minMagnitude (number input), region (select), maxDepthKm (number input), briefingPrompt (textarea), briefingSchedule (cron input)
     - Call `PUT /customers/:customerId/config` on submit with Bearer JWT
