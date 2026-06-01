@@ -103,11 +103,18 @@ export const PROCESSED_EVENT_IDS_LIMIT = 200;
 
 /**
  * Default Bedrock model id used when `BEDROCK_MODEL_ID` is not set in the
- * environment. The AgentStack does not yet wire a model id env var (task 9.10 /
- * CDK), so this default keeps the agent runnable; override it via the env var
- * without a code change.
+ * environment. Uses the US cross-region inference profile for Claude Haiku 4.5,
+ * a current (non-legacy) on-demand model well suited to this workload (5-15
+ * events/day per customer). The agent's IAM role grants `bedrock:InvokeModel`
+ * on both foundation-model and inference-profile ARNs across regions, so this
+ * profile resolves without further changes. Override it via the
+ * `BEDROCK_MODEL_ID` env var without a code change.
+ *
+ * Note: earlier Claude 3.x defaults are now rejected by Bedrock — the 3.5
+ * Sonnet 20240620 model reached end of life, and 3.5 Haiku is marked Legacy
+ * with access denied for accounts that have not used it recently.
  */
-const DEFAULT_BEDROCK_MODEL_ID = "anthropic.claude-3-5-sonnet-20240620-v1:0";
+const DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 /**
  * Resolve the sessions bucket name from the environment (set by AgentStack).
