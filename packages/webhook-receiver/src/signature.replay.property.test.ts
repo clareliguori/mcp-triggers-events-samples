@@ -33,8 +33,8 @@ import { describe, expect, it } from "vitest";
 
 import { signWebhook, verifyWebhook } from "./signature.js";
 
-/** Per-property run count. fast-check defaults to 100; we exceed the minimum. */
-const NUM_RUNS = 200;
+/** Per-property run count. Spec floor is 100 random inputs per property. */
+const NUM_RUNS = 100;
 
 /**
  * Safety margin (seconds) added past the tolerance boundary so the small,

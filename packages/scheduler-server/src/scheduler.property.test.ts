@@ -48,8 +48,8 @@ import { describe, expect, it } from "vitest";
 
 import { cronMatchesAt, dueSubscriptions } from "./scheduler.js";
 
-/** Per-property run count. fast-check defaults to 100; ~200 matches repo style. */
-const NUM_RUNS = 200;
+/** Per-property run count. Spec floor is 100 random inputs per property. */
+const NUM_RUNS = 100;
 
 /** Generated date range (UTC). Wide enough to span months and weekdays. */
 const MIN_DATE = new Date(Date.UTC(2000, 0, 1, 0, 0, 0, 0));

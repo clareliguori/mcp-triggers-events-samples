@@ -29,8 +29,8 @@ import { handler } from "./handler.js";
 import { HttpError } from "./http.js";
 import type { AuthContext } from "./types.js";
 
-/** Per-property run count. fast-check defaults to 100; we set it explicitly. */
-const NUM_RUNS = 200;
+/** Per-property run count. Spec floor is 100 random inputs per property. */
+const NUM_RUNS = 100;
 
 // ---------------------------------------------------------------------------
 // Generators

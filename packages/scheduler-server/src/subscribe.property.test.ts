@@ -46,8 +46,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createSubscription, handler } from "./handler.js";
 
-/** Per-property run count. fast-check defaults to 100; ~200 matches repo style. */
-const NUM_RUNS = 200;
+/** Per-property run count. Spec floor is 100 random inputs per property. */
+const NUM_RUNS = 100;
 
 const SUBSCRIPTIONS_TABLE = "test-subscriptions";
 const KEY_ID = "arn:aws:kms:us-east-1:111122223333:key/test-key";

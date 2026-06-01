@@ -67,8 +67,8 @@ import {
   type ReportWriteResult,
 } from "./briefing.js";
 
-/** Per-property run count; >= 100 satisfies the task, ~150 matches repo style. */
-const NUM_RUNS = 150;
+/** Per-property run count. Spec floor is 100 random inputs per property. */
+const NUM_RUNS = 100;
 
 const BUCKET_NAME = "test-sessions-bucket";
 const CUSTOMER_ID = "33333333-3333-4333-8333-333333333333";

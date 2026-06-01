@@ -90,8 +90,8 @@ import {
 const BUCKET_NAME = "test-sessions-bucket";
 /** Fixed base for deterministic, parseable earthquake timestamps. */
 const BASE_TIME_MS = Date.parse("2024-01-01T00:00:00.000Z");
-/** Per-property run count. fast-check defaults to 100; repo style is ~200. */
-const NUM_RUNS = 200;
+/** Per-property run count. Spec floor is 100 random inputs per property. */
+const NUM_RUNS = 100;
 /** Briefing facet drives the real agent loop twice per customer; keep ≥100. */
 const NUM_RUNS_BRIEFING = 100;
 

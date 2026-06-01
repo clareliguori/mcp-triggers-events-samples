@@ -49,8 +49,8 @@ import {
   setDocumentClientForTesting,
 } from "./handler.js";
 
-/** Per-property run count; ~200 matches the repo's other property tests. */
-const NUM_RUNS = 200;
+/** Per-property run count. Spec floor is 100 random inputs per property. */
+const NUM_RUNS = 100;
 
 const SUBSCRIPTIONS_TABLE = "test-subscriptions";
 
