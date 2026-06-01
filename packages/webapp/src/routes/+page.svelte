@@ -22,8 +22,7 @@
   {:else if auth.isAuthenticated}
     <div class="flex flex-col items-center gap-3">
       <p class="text-sm">
-        Signed in{#if auth.email}
-          as <span class="font-medium">{auth.email}</span>{/if}.
+        Signed in{#if auth.email}{" "}as <span class="font-medium">{auth.email}</span>{/if}.
       </p>
       <p class="text-xs text-muted-foreground">
         Customer ID: <code>{auth.customerId}</code>
