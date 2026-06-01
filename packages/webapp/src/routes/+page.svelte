@@ -31,6 +31,7 @@
       <div class="flex flex-wrap items-center justify-center gap-2">
         <Button href="/config">Configure monitoring</Button>
         <Button variant="outline" href="/reports">View reports</Button>
+        <Button variant="outline" href="/conversation">View conversation</Button>
         <Button variant="ghost" onclick={() => void signOut()}>
           <LogOutIcon />
           Sign out

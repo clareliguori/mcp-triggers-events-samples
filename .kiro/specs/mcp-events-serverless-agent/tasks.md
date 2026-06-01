@@ -378,7 +378,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 10.4, 10.5_
     - _Validation: `npm run build` succeeds (SvelteKit static build); `npm run check` passes (svelte-check for type errors); visual inspection: `npm run dev` and verify UI renders correctly_
 
-  - [ ] 12.5 Implement conversation history view
+  - [x] 12.5 Implement conversation history view
     - Create conversation history page/section calling `GET /customers/:customerId/session/messages` with Cognito JWT
     - Render messages as a chat-style timeline with distinct visual treatments per message role:
       - User messages (earthquake event injections) displayed as event cards showing earthquake data
