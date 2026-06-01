@@ -23,9 +23,20 @@
  */
 
 import { Sha256 } from "@aws-crypto/sha256-js";
-import { GetObjectCommand, NoSuchKey, S3Client } from "@aws-sdk/client-s3";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import {
+  GetObjectCommand,
+  ListObjectsV2Command,
+  NoSuchKey,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { ReceiveMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { defaultProvider } from "@aws-sdk/credential-provider-node";
+import {
+  DeleteCommand,
+  DynamoDBDocumentClient,
+  PutCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { SignatureV4 } from "@smithy/signature-v4";
 import type { HttpRequest } from "@smithy/types";
 import type {
@@ -33,6 +44,7 @@ import type {
   ConversationMessage,
   CustomerConfig,
   McpEventPayload,
+  ReportSummary,
 } from "@mcp-events/shared";
 import { MCP_SUBSCRIPTION_ID_HEADER, signWebhook } from "@mcp-events/shared";
 
@@ -119,17 +131,115 @@ export async function signedRequest(
   return { statusCode: response.status, body: text, json };
 }
 
+/** First N characters of a report summary kept in a {@link ReportSummary}. */
+const SUMMARY_PREVIEW_LENGTH = 200;
+
+/** Whether an S3 error represents a missing object/bucket or a 404 response. */
+function isS3NotFound(error: unknown): boolean {
+  if (error instanceof NoSuchKey) {
+    return true;
+  }
+  if (error instanceof Error && error.name === "NoSuchKey") {
+    return true;
+  }
+  const status = (error as { $metadata?: { httpStatusCode?: number } })
+    ?.$metadata?.httpStatusCode;
+  return status === 404;
+}
+
+/**
+ * Project a full {@link BriefingReport} to the lightweight {@link ReportSummary}
+ * shape the Data API list route returns, so the harness's S3-direct listing
+ * matches what `GET /customers/{id}/reports` would have produced.
+ */
+function toReportSummary(report: BriefingReport): ReportSummary {
+  return {
+    reportId: report.reportId,
+    generatedAt: report.generatedAt,
+    periodStart: report.periodStart,
+    periodEnd: report.periodEnd,
+    totalEarthquakes: report.totalEarthquakes,
+    summary: report.summary.slice(0, SUMMARY_PREVIEW_LENGTH),
+  };
+}
+
+/**
+ * Extract the conversation history from a parsed session snapshot, mirroring
+ * the Data API's session route. The snapshot is either the application-level
+ * `AgentSessionState` shape (top-level `messages`) or the Strands SDK
+ * `Snapshot` shape (messages nested under `data`); anything else yields an
+ * empty array.
+ */
+function extractSessionMessages(snapshot: unknown): ConversationMessage[] {
+  if (snapshot === null || typeof snapshot !== "object") {
+    return [];
+  }
+  const root = snapshot as Record<string, unknown>;
+  if (Array.isArray(root.messages)) {
+    return root.messages as ConversationMessage[];
+  }
+  const data = root.data;
+  if (data !== null && typeof data === "object") {
+    const nested = (data as Record<string, unknown>).messages;
+    if (Array.isArray(nested)) {
+      return nested as ConversationMessage[];
+    }
+  }
+  return [];
+}
+
 /**
  * A small client bound to a resolved {@link StackConfig}. Exposes the Data API
- * and AWS operations the flows need, all as IAM (SigV4) backend calls.
+ * and AWS operations the flows need.
+ *
+ * ## IAM vs Cognito on the deployed Data API
+ *
+ * The harness authenticates with SigV4 (IAM) for every Data API call — it acts
+ * as a backend caller so it can operate on any customer (Requirement 9.3). But
+ * the deployed Data API splits its surface between two authorizers:
+ *
+ * - **IAM (AWS_IAM)** routes the harness can call directly: the backend config
+ *   read `GET /backend/customers/{id}/config`, the subscription routes
+ *   (`GET/POST /customers/{id}/subscriptions`, `GET/PUT /subscriptions/{id}`),
+ *   and `POST /customers/{id}/reports`.
+ * - **Cognito (COGNITO_USER_POOLS)** routes reserved for the webapp's end-user
+ *   JWT, which an IAM-signed request cannot satisfy (it 401s): config
+ *   create/update/delete (`PUT`/`DELETE /customers/{id}/config`), the config
+ *   read on the webapp path (`GET /customers/{id}/config`), session messages
+ *   (`GET /customers/{id}/session/messages`), the reports list / read
+ *   (`GET /customers/{id}/reports[/{id}]`), and the manual briefing trigger.
+ *
+ * So this harness routes each operation to whatever the deployed API actually
+ * exposes to an IAM caller, and goes around the API for the rest:
+ *
+ * - **Config read** -> the IAM backend route `GET /backend/customers/{id}/config`
+ *   (the same route the Serverless Agent uses), NOT the Cognito webapp route.
+ * - **Config write / delete** -> there is **no** IAM-authorized config
+ *   create/update/delete route on the deployed API, so the harness writes the
+ *   `CustomerConfig` item **directly to the CustomerConfig DynamoDB table**.
+ *   This is not a shortcut: a direct `PutItem` fires the table's DynamoDB
+ *   Stream, which is exactly the trigger the Subscription Manager consumes to
+ *   create subscriptions — so seeding config this way both drives the test and
+ *   exercises the real DynamoDB Stream -> Subscription Manager registration
+ *   path the registration flow asserts on.
+ * - **Session messages** -> read the agent's session snapshot directly from the
+ *   sessions S3 bucket (the `GET .../session/messages` route is Cognito-only).
+ * - **Reports list** -> list/read report objects directly from the reports S3
+ *   bucket (the `GET .../reports` route is Cognito-only); writes already go
+ *   through the IAM `POST .../reports` route the agent uses.
  */
 export class Harness {
   private readonly s3: S3Client;
   private readonly sqs: SQSClient;
+  private readonly dynamo: DynamoDBDocumentClient;
 
   constructor(public readonly config: StackConfig) {
     this.s3 = new S3Client({ region: config.region });
     this.sqs = new SQSClient({ region: config.region });
+    this.dynamo = DynamoDBDocumentClient.from(
+      new DynamoDBClient({ region: config.region }),
+      { marshallOptions: { removeUndefinedValues: true } },
+    );
   }
 
   /** Join the Data API base URL with a path. */
@@ -138,8 +248,33 @@ export class Harness {
     return `${base}${path}`;
   }
 
-  /** PUT a customer config. */
-  putConfig(
+  /** Resolve the CustomerConfig table name, throwing a clear error when unset. */
+  private customerConfigTable(): string {
+    const name = this.config.customerConfigTableName;
+    if (!name) {
+      throw new Error("customerConfigTableName is not configured");
+    }
+    return name;
+  }
+
+  /**
+   * Create or update a customer config.
+   *
+   * The deployed Data API exposes config writes only on the Cognito-authorized
+   * `PUT /customers/{id}/config` route, which a SigV4 (IAM) caller cannot use.
+   * There is no IAM-authorized config write route, so the harness writes the
+   * `CustomerConfig` item **directly to the CustomerConfig DynamoDB table**.
+   *
+   * This is intentional and load-bearing for the registration flow: a direct
+   * `PutItem` fires the table's DynamoDB Stream, which is exactly what the
+   * Subscription Manager consumes (stream INSERT -> `events/subscribe` on both
+   * MCP servers). Seeding config this way therefore both drives every flow that
+   * needs a customer AND exercises the real registration path under test. The
+   * item shape mirrors what `PUT /customers/{id}/config` persists (sets
+   * `active: true` and stamps `createdAt`/`updatedAt`) so the Subscription
+   * Manager's `customerConfigSchema` validation of the stream image passes.
+   */
+  async putConfig(
     customerId: string,
     input: Pick<
       CustomerConfig,
@@ -148,42 +283,57 @@ export class Harness {
       | "briefingPrompt"
       | "briefingSchedule"
     >,
-  ): Promise<HttpResult> {
-    return signedRequest(
-      {
-        method: "PUT",
-        url: this.dataApi(
-          `/customers/${encodeURIComponent(customerId)}/config`,
-        ),
-        body: JSON.stringify(input),
-      },
-      this.config.region,
+  ): Promise<CustomerConfig> {
+    const now = new Date().toISOString();
+    const item: CustomerConfig = {
+      customerId,
+      displayName: input.displayName,
+      subscriptionParams: input.subscriptionParams,
+      briefingPrompt: input.briefingPrompt,
+      briefingSchedule: input.briefingSchedule,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.dynamo.send(
+      new PutCommand({ TableName: this.customerConfigTable(), Item: item }),
     );
+    return item;
   }
 
-  /** GET a customer config. */
+  /**
+   * Read a customer config via the IAM-authorized backend route
+   * `GET /backend/customers/{id}/config` (the same route the Serverless Agent
+   * uses). The webapp-facing `GET /customers/{id}/config` route is Cognito-only
+   * and would reject this SigV4-signed request with 401.
+   */
   getConfig(customerId: string): Promise<HttpResult> {
     return signedRequest(
       {
         method: "GET",
         url: this.dataApi(
-          `/customers/${encodeURIComponent(customerId)}/config`,
+          `/backend/customers/${encodeURIComponent(customerId)}/config`,
         ),
       },
       this.config.region,
     );
   }
 
-  /** DELETE (soft) a customer config. */
-  deleteConfig(customerId: string): Promise<HttpResult> {
-    return signedRequest(
-      {
-        method: "DELETE",
-        url: this.dataApi(
-          `/customers/${encodeURIComponent(customerId)}/config`,
-        ),
-      },
-      this.config.region,
+  /**
+   * Delete a customer config by removing its item from the CustomerConfig
+   * DynamoDB table (test cleanup). As with {@link putConfig}, the deployed
+   * `DELETE /customers/{id}/config` route is Cognito-only with no IAM
+   * equivalent, so the harness operates on the table directly. A hard delete
+   * (rather than the API's soft `active: false`) keeps repeated test runs from
+   * accumulating rows and fires a stream REMOVE the Subscription Manager
+   * tolerates.
+   */
+  async deleteConfig(customerId: string): Promise<void> {
+    await this.dynamo.send(
+      new DeleteCommand({
+        TableName: this.customerConfigTable(),
+        Key: { customerId },
+      }),
     );
   }
 
@@ -247,54 +397,110 @@ export class Harness {
     );
   }
 
-  /** Trigger a manual briefing for a customer (forwarded to MCP Server 2). */
-  triggerBriefing(customerId: string, reason?: string): Promise<HttpResult> {
-    return signedRequest(
-      {
-        method: "POST",
-        url: this.dataApi(
-          `/trigger-briefing/${encodeURIComponent(customerId)}`,
-        ),
-        body: JSON.stringify(reason !== undefined ? { reason } : {}),
-      },
-      this.config.region,
-    );
+  /** List a customer's report summaries (optionally only the latest).
+   *
+   * The deployed `GET /customers/{id}/reports` route is Cognito-only, so the
+   * harness lists and reads the report objects directly from the reports S3
+   * bucket — the same `reports/{customerId}/{reportId}.json` layout the Data
+   * API reads — projecting each to the {@link ReportSummary} shape and sorting
+   * newest-first by `generatedAt`. Report writes still flow through the agent's
+   * IAM `POST /customers/{id}/reports` route under test; this only reads back
+   * what was written. Returns at most one summary when `latest` is true.
+   */
+  async listReports(
+    customerId: string,
+    latest = false,
+  ): Promise<ReportSummary[]> {
+    const reports = await this.listReportsFromS3(customerId);
+    return latest ? reports.slice(0, 1) : reports;
   }
 
-  /** List a customer's report summaries (optionally only the latest). */
-  listReports(customerId: string, latest = false): Promise<HttpResult> {
-    const suffix = latest ? "?latest=true" : "";
-    return signedRequest(
-      {
-        method: "GET",
-        url: this.dataApi(
-          `/customers/${encodeURIComponent(customerId)}/reports${suffix}`,
-        ),
-      },
-      this.config.region,
-    );
-  }
-
-  /** Read the agent's conversation history for a customer via the Data API. */
+  /** Read the agent's conversation history for a customer.
+   *
+   * The deployed `GET /customers/{id}/session/messages` route is Cognito-only,
+   * so the harness reads the agent's session snapshot directly from the
+   * sessions S3 bucket at the same key the Data API reads
+   * (`sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`)
+   * and extracts the conversation history. Returns an empty array when no
+   * snapshot exists yet (the customer has not been processed).
+   */
   async getSessionMessages(customerId: string): Promise<ConversationMessage[]> {
-    const result = await signedRequest(
-      {
-        method: "GET",
-        url: this.dataApi(
-          `/customers/${encodeURIComponent(customerId)}/session/messages`,
-        ),
-      },
-      this.config.region,
-    );
-    if (result.statusCode !== 200) {
-      throw new Error(
-        `GET session messages for ${customerId} returned ${result.statusCode}: ${result.body}`,
-      );
+    const bucket = this.config.sessionsBucketName;
+    if (!bucket) {
+      throw new Error("sessionsBucketName is not configured");
     }
-    const body = result.json as
-      | { messages?: ConversationMessage[] }
-      | undefined;
-    return body?.messages ?? [];
+    const key = `sessions/${customerId}/scopes/agent/agent/snapshots/snapshot_latest.json`;
+    let text: string | undefined;
+    try {
+      const result = await this.s3.send(
+        new GetObjectCommand({ Bucket: bucket, Key: key }),
+      );
+      text = await result.Body?.transformToString();
+    } catch (error) {
+      if (isS3NotFound(error)) {
+        return [];
+      }
+      throw error;
+    }
+    if (!text) {
+      return [];
+    }
+    let snapshot: unknown;
+    try {
+      snapshot = JSON.parse(text);
+    } catch {
+      return [];
+    }
+    return extractSessionMessages(snapshot);
+  }
+
+  /**
+   * List + read every report object under a customer's reports prefix in S3,
+   * projecting each to a {@link ReportSummary} and sorting newest-first.
+   */
+  private async listReportsFromS3(
+    customerId: string,
+  ): Promise<ReportSummary[]> {
+    const bucket = this.config.reportsBucketName;
+    if (!bucket) {
+      throw new Error("reportsBucketName is not configured");
+    }
+    const prefix = `reports/${customerId}/`;
+    const keys: string[] = [];
+    let continuationToken: string | undefined;
+    do {
+      const listing = await this.s3.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        }),
+      );
+      for (const obj of listing.Contents ?? []) {
+        if (obj.Key?.endsWith(".json")) {
+          keys.push(obj.Key);
+        }
+      }
+      continuationToken = listing.IsTruncated
+        ? listing.NextContinuationToken
+        : undefined;
+    } while (continuationToken);
+
+    const reports = await Promise.all(
+      keys.map(async (key) => {
+        const match = /\/([^/]+)\.json$/.exec(key);
+        const reportId = match?.[1];
+        if (!reportId) {
+          return undefined;
+        }
+        const report = await this.readReportFromS3(customerId, reportId);
+        return report ? toReportSummary(report) : undefined;
+      }),
+    );
+
+    return reports
+      .filter((r): r is ReportSummary => r !== undefined)
+      .sort((a, b) => Date.parse(b.generatedAt) - Date.parse(a.generatedAt));
   }
 
   /**
@@ -326,7 +532,11 @@ export class Harness {
     rawBody: string,
   ): Promise<HttpResult> {
     const sig = signWebhook(rawBody, secret);
-    const target = `${(this.config.webhookUrl ?? "").replace(/\/+$/, "")}`;
+    // The Webhook Receiver serves deliveries at `POST /webhook` (matching what
+    // the Subscription Manager registers as each subscription's callback URL).
+    // Posting to the bare receiver origin hits the API Gateway root resource,
+    // which has no POST method and returns 403, so target `/webhook` explicitly.
+    const target = `${(this.config.webhookUrl ?? "").replace(/\/+$/, "")}/webhook`;
     const response = await fetch(target, {
       method: "POST",
       headers: {
