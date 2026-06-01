@@ -23,9 +23,11 @@ export type AgentStackProps = cdk.StackProps & SharedProps;
  *   `sessions/{customerId}/session.json`. The Strands SDK SessionManager reads
  *   and writes it directly (Requirement 4.3). Block all public access,
  *   S3-managed encryption, and SSL enforcement (Requirement 17.3).
- * - A DynamoDB session locks table keyed on `customerId` with a TTL attribute
- *   so a lock auto-releases after the lease (60 seconds) if an invocation
- *   crashes (Requirements 6.1, 6.4).
+ * - A DynamoDB session locks table keyed on `customerId` (partition) plus a
+ *   constant `lockGroup` sort key, matching the @deliveryhero/dynamodb-lock
+ *   client's composite-key contract, with a TTL attribute so a lock
+ *   auto-releases after the lease (60 seconds) if an invocation crashes
+ *   (Requirements 6.1, 6.4).
  * - A least-privilege execution role granting `execute-api:Invoke` on the Data
  *   API (the agent signs requests with SigV4 to resolve subscriptions and load
  *   config), `bedrock:InvokeModel` on the foundation models / inference
@@ -45,9 +47,10 @@ export type AgentStackProps = cdk.StackProps & SharedProps;
  * export only needs to exist at deploy time.
  *
  * LOCK TABLE NOTE: The agent uses the `@deliveryhero/dynamodb-lock` client
- * (configured in subtask 9.1) against this table. The table is provisioned here
- * with `customerId` as the partition key and a `ttl` TTL attribute per the task
- * design; subtask 9.1 configures the lock client's key/ttl names to match.
+ * (configured in subtask 9.1) against this table. That client addresses lock
+ * rows by a composite key, so the table is provisioned here with `customerId`
+ * as the partition key, a constant `lockGroup` sort key, and a `ttl` TTL
+ * attribute; subtask 9.1 configures the lock client's key/ttl names to match.
  *
  * HANDLER NOTE: The Lambda handler lives in the @mcp-events/agent package at
  * src/handler.ts (subtask 9.10). The NodejsFunction `entry` points at it and
@@ -78,12 +81,16 @@ export class AgentStack extends cdk.Stack {
     });
 
     // --- DynamoDB: session locks ---------------------------------------------
-    // customerId is the partition key; the TTL attribute auto-releases locks
-    // held by crashed invocations after the lease elapses (Requirements 6.1,
-    // 6.4). The lock client uses conditional writes for owner-only release
-    // (Requirement 6.5).
+    // The agent locks per customer via the @deliveryhero/dynamodb-lock client
+    // (configured in subtask 9.1), which addresses lock rows by a composite key:
+    // `customerId` (partition key) plus a constant `lockGroup` sort key. The
+    // table schema must match that client contract, so both keys are declared
+    // here. The TTL attribute auto-releases locks held by crashed invocations
+    // after the lease elapses (Requirements 6.1, 6.4), and the lock client uses
+    // conditional writes for owner-only release (Requirement 6.5).
     const sessionLocksTable = new dynamodb.Table(this, "SessionLocksTable", {
       partitionKey: { name: "customerId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "lockGroup", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       timeToLiveAttribute: "ttl",
