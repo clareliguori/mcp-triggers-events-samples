@@ -49,6 +49,14 @@ const SCHEDULER_MCP_URL =
 const WEBHOOK_URL = "https://webhook.earthquake-agent.example.com";
 const DATA_API_URL = "https://api.earthquake-agent.example.com";
 
+// An obviously-fake per-subscription Standard Webhooks secret for fixtures.
+// Computed inline from readable plaintext so the decoded value is self-evident
+// (it is the literal string below, not a real credential). The base64 body is
+// 29 bytes, satisfying the shared whsec_ schema's 24-64 byte requirement.
+const PLACEHOLDER_SECRET = `whsec_${Buffer.from(
+  "placeholder-not-a-real-secret",
+).toString("base64")}`;
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -146,7 +154,7 @@ function makeRefreshDependencies(): RefreshDependencies {
     serverEndpoint: USGS_MCP_URL,
     eventName: "earthquake.detected",
     callbackUrl: `${WEBHOOK_URL}/webhook`,
-    secret: "whsec_dGVzdHNlY3JldHRlc3RzZWNyZXR0ZXN0c2VjcmV0Zm9v",
+    secret: PLACEHOLDER_SECRET,
     filterParams: { minMagnitude: 4.5, region: "pacific" },
     // Already expired so the refresh always selects it.
     expiresAt: "2024-01-01T00:00:00.000Z",
