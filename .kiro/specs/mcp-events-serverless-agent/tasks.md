@@ -347,8 +347,8 @@ This implementation plan breaks the multi-stack CDK application into incremental
   - Ensure all tests pass, ask the user if questions arise.
   - _Validation: All preceding tasks' validations pass; `npx tsc --noEmit` compiles entire monorepo; `npx vitest run` passes all tests_
 
-- [ ] 12. Webapp (SvelteKit SPA)
-  - [ ] 12.1 Initialize SvelteKit project with shadcn-svelte
+- [-] 12. Webapp (SvelteKit SPA)
+  - [x] 12.1 Initialize SvelteKit project with shadcn-svelte
     - Create `packages/webapp` with SvelteKit (static adapter for S3/CloudFront deployment)
     - Install and configure shadcn-svelte, Tailwind CSS
     - Configure SvelteKit for SPA mode with static adapter

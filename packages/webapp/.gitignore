@@ -1,0 +1,12 @@
+# SvelteKit / Vite build artifacts
+.svelte-kit/
+build/
+.vite/
+
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.*
+!.env.example
