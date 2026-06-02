@@ -22,7 +22,7 @@ import {
   QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 import type {
-  WebhookSubscription,
+  WebhookSubscriptionData,
   WebhookSubscriptionStore,
 } from "@modelcontextprotocol/server";
 
@@ -58,27 +58,6 @@ interface StoredSubscription {
   ttl: number;
 }
 
-// Stub ServerContext for deserialized subscriptions — webhook delivery
-// does not call ctx methods, it only reads subscription data fields.
-// eslint-disable-next-line @typescript-eslint/no-empty-function
-const STUB_CTX = {
-  sessionId: undefined,
-  http: undefined,
-  mcpReq: {
-    id: 0,
-    signal: new AbortController().signal,
-    log: () => Promise.resolve(),
-    elicitInput: () => Promise.resolve({ action: "reject" as const }),
-    requestSampling: () =>
-      Promise.resolve({
-        model: "",
-        role: "assistant" as const,
-        content: { type: "text" as const, text: "" },
-      }),
-    notify: () => Promise.resolve(),
-  },
-} as unknown as WebhookSubscription["ctx"];
-
 // ---------------------------------------------------------------------------
 // Store implementation
 // ---------------------------------------------------------------------------
@@ -94,7 +73,7 @@ export class DynamoDBWebhookSubscriptionStore
     this.kmsKeyId = kmsKeyId;
   }
 
-  async get(key: string): Promise<WebhookSubscription | undefined> {
+  async get(key: string): Promise<WebhookSubscriptionData | undefined> {
     const result = await getDocumentClient().send(
       new GetCommand({ TableName: this.tableName, Key: { pk: key } }),
     );
@@ -102,7 +81,7 @@ export class DynamoDBWebhookSubscriptionStore
     return this.deserialize(result.Item as StoredSubscription);
   }
 
-  async put(key: string, sub: WebhookSubscription): Promise<void> {
+  async put(key: string, sub: WebhookSubscriptionData): Promise<void> {
     const item = await this.serialize(key, sub);
     await getDocumentClient().send(
       new PutCommand({ TableName: this.tableName, Item: item }),
@@ -115,7 +94,7 @@ export class DynamoDBWebhookSubscriptionStore
     );
   }
 
-  async listByEvent(eventName: string): Promise<WebhookSubscription[]> {
+  async listByEvent(eventName: string): Promise<WebhookSubscriptionData[]> {
     const result = await getDocumentClient().send(
       new QueryCommand({
         TableName: this.tableName,
@@ -147,7 +126,7 @@ export class DynamoDBWebhookSubscriptionStore
 
   private async serialize(
     key: string,
-    sub: WebhookSubscription,
+    sub: WebhookSubscriptionData,
   ): Promise<StoredSubscription> {
     const secretsJson = JSON.stringify(sub.secrets);
     const encryptedSecrets = await encryptSubscriptionSecret(
@@ -174,7 +153,7 @@ export class DynamoDBWebhookSubscriptionStore
 
   private async deserialize(
     item: StoredSubscription,
-  ): Promise<WebhookSubscription> {
+  ): Promise<WebhookSubscriptionData> {
     const secretsJson = await decryptSubscriptionSecret(
       getKmsClient(),
       item.pk,
@@ -188,12 +167,11 @@ export class DynamoDBWebhookSubscriptionStore
       params: item.params,
       cursor: item.cursor,
       internalCheckCursor: item.internalCheckCursor,
-      ctx: STUB_CTX,
       url: item.url,
       secrets,
       acknowledgedSeq: item.acknowledgedSeq,
       expiresAt: item.expiresAt,
-      deliveryStatus: JSON.parse(item.deliveryStatus) as WebhookSubscription["deliveryStatus"],
+      deliveryStatus: JSON.parse(item.deliveryStatus) as WebhookSubscriptionData["deliveryStatus"],
     };
   }
 }
