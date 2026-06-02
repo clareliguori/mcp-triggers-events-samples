@@ -191,12 +191,20 @@ const defaultMcpSubscriber: McpSubscriber = async (serverUrl, params) => {
 
   await client.connect(transport);
   try {
-    // The MCP SDK types request params as an open record; our structured
-    // McpSubscribeParams satisfies the wire shape, so widen it here.
+    // Map our internal SubscribeParams shape to the MCP Events protocol wire
+    // format expected by the SDK's McpServer (events/subscribe).
+    const wireParams = {
+      name: params.event,
+      delivery: {
+        url: params.delivery.url,
+        secret: params.delivery.secret,
+      },
+      params: params.inputSchema ?? {},
+    };
     return await client.request(
       {
         method: "events/subscribe",
-        params: params as unknown as Record<string, unknown>,
+        params: wireParams,
       },
       subscribeResultSchema,
     );

@@ -208,9 +208,16 @@ export const subscribeParamsSchema = z.object({
 });
 
 export const subscribeResultSchema = z.object({
-  subscriptionId: uuidV4Schema,
-  expiresAt: isoDateTimeSchema,
-});
+  /** The SDK returns `id`; legacy servers return `subscriptionId`. */
+  id: z.string().optional(),
+  subscriptionId: uuidV4Schema.optional(),
+  /** The SDK returns `refreshBefore`; legacy servers return `expiresAt`. */
+  refreshBefore: isoDateTimeSchema.optional(),
+  expiresAt: isoDateTimeSchema.optional(),
+}).transform((val) => ({
+  subscriptionId: val.id ?? val.subscriptionId ?? "",
+  expiresAt: val.refreshBefore ?? val.expiresAt ?? "",
+}));
 
 // ---------------------------------------------------------------------------
 // Persisted records (for completeness — used by internal handlers)

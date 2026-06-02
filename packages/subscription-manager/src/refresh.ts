@@ -757,25 +757,20 @@ const defaultSubscribeOnServer: RefreshDependencies["subscribeOnServer"] =
     );
     await client.connect(transport);
     try {
-      // The optional `customerId` extension field is read by the MCP servers to
-      // record the subscription's owner; it sits alongside the protocol params.
-      const params: SubscribeParams & { customerId: string } = {
-        event: inputs.server.eventName,
+      // Map to the MCP Events protocol wire format expected by the SDK's
+      // McpServer (events/subscribe).
+      const wireParams = {
+        name: inputs.server.eventName,
         delivery: {
-          mode: "webhook",
           url: inputs.callbackUrl,
           secret: inputs.secret,
         },
-        ttl: inputs.ttlSeconds,
-        customerId: inputs.customerId,
-        ...(inputs.inputSchema ? { inputSchema: inputs.inputSchema } : {}),
+        params: inputs.inputSchema ?? {},
       };
-      // The MCP `request` params type requires an index signature; widen the
-      // strongly-typed params (constructed above for safety) to a record.
       const result = await client.request(
         {
           method: "events/subscribe",
-          params: params as unknown as Record<string, unknown>,
+          params: wireParams,
         },
         subscribeResultSchema,
       );
