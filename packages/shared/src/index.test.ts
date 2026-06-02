@@ -20,6 +20,7 @@ import {
   UUID_V4_REGEX,
   customerConfigInputSchema,
   customerConfigSchema,
+  customerIdSchema,
   cronExpressionSchema,
   earthquakeDetectedEventSchema,
   mcpEventPayloadSchema,
@@ -199,6 +200,18 @@ describe("@mcp-events/shared exports", () => {
     expect(
       uuidV4Schema.safeParse("a1b2c3d4-e5f6-1890-abcd-ef1234567890").success,
     ).toBe(false);
+  });
+
+  it("customerIdSchema accepts any UUID version (Cognito subs are not always v4)", () => {
+    // A real Cognito User Pool `sub` whose version nibble is 7, not 4. The
+    // strict v4 schema rejects it, but customerIdSchema must accept it.
+    const cognitoSub = "680103a0-3001-70ab-4989-d8c08f8b522f";
+    expect(uuidV4Schema.safeParse(cognitoSub).success).toBe(false);
+    expect(customerIdSchema.safeParse(cognitoSub).success).toBe(true);
+    // Still a real UUID shape — garbage is rejected.
+    expect(customerIdSchema.safeParse("not-a-uuid").success).toBe(false);
+    // A v4 UUID is also a valid customerId.
+    expect(customerIdSchema.safeParse(validUuid).success).toBe(true);
   });
 
   it("cronExpressionSchema validates 5-field cron expressions", () => {

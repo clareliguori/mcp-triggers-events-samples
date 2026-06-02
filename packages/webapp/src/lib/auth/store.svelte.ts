@@ -211,9 +211,15 @@ export async function signOut(): Promise<void> {
 }
 
 /**
- * Return a valid access token, refreshing it first if it is expired or near
- * expiry. Returns null when the user is not authenticated or refresh fails.
- * Components calling the Data API should use this to obtain the Bearer token.
+ * Return a valid bearer token for Data API calls, refreshing it first if it is
+ * expired or near expiry. Returns null when the user is not authenticated or
+ * refresh fails.
+ *
+ * This returns the Cognito **id token**, not the access token: the Data API's
+ * API Gateway Cognito User Pool Authorizer validates id tokens (it checks the
+ * `token_use` claim and rejects access tokens with 401). The id token also
+ * carries the `email`/profile claims the API may use. Components calling the
+ * Data API should use this to obtain the `Authorization: Bearer` credential.
  */
 export async function getValidAccessToken(): Promise<string | null> {
   if (!state.tokens || !state.claims) {
@@ -227,7 +233,7 @@ export async function getValidAccessToken(): Promise<string | null> {
       return null;
     }
   }
-  return state.tokens?.accessToken ?? null;
+  return state.tokens?.idToken ?? null;
 }
 
 async function tryRefresh(config?: CognitoConfig): Promise<boolean> {

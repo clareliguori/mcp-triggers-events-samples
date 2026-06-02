@@ -37,7 +37,11 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import type { BriefingReport, ReportSummary } from "@mcp-events/shared";
-import { briefingReportSchema, uuidV4Schema } from "@mcp-events/shared";
+import {
+  briefingReportSchema,
+  customerIdSchema,
+  uuidV4Schema,
+} from "@mcp-events/shared";
 import { z } from "zod";
 
 import { badRequest, notFound } from "../http.js";
@@ -100,12 +104,12 @@ function formatZodError(error: z.ZodError): string {
 /**
  * Validate and return the `customerId` path parameter.
  *
- * @throws HttpError 400 when it is missing or not a UUID v4 (Requirement 16.1).
+ * @throws HttpError 400 when it is missing or not a UUID (Requirement 16.1).
  */
 function requireCustomerId(ctx: RouteContext): string {
-  const result = uuidV4Schema.safeParse(ctx.pathParameters.customerId);
+  const result = customerIdSchema.safeParse(ctx.pathParameters.customerId);
   if (!result.success) {
-    throw badRequest("customerId must be a valid UUID v4");
+    throw badRequest("customerId must be a valid UUID");
   }
   return result.data;
 }

@@ -34,7 +34,10 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import type { CustomerConfig } from "@mcp-events/shared";
-import { customerConfigInputSchema, uuidV4Schema } from "@mcp-events/shared";
+import {
+  customerConfigInputSchema,
+  customerIdSchema,
+} from "@mcp-events/shared";
 import { z } from "zod";
 
 import { badRequest, notFound } from "../http.js";
@@ -81,12 +84,12 @@ function tableName(): string {
 /**
  * Validate and return the `customerId` path parameter.
  *
- * @throws HttpError 400 when it is missing or not a UUID v4 (Requirement 16.1).
+ * @throws HttpError 400 when it is missing or not a UUID (Requirement 16.1).
  */
 function requireCustomerId(ctx: RouteContext): string {
-  const result = uuidV4Schema.safeParse(ctx.pathParameters.customerId);
+  const result = customerIdSchema.safeParse(ctx.pathParameters.customerId);
   if (!result.success) {
-    throw badRequest("customerId must be a valid UUID v4");
+    throw badRequest("customerId must be a valid UUID");
   }
   return result.data;
 }

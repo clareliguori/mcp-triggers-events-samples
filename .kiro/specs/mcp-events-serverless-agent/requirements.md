@@ -213,7 +213,7 @@ This document defines the requirements for the MCP Events Serverless Agent — a
 
 #### Acceptance Criteria
 
-1. THE Data_API SHALL validate that `customerId` conforms to UUID v4 format
+1. THE Data_API SHALL validate that `customerId` conforms to UUID format (any RFC 4122 version, since it equals the Cognito User Pool `sub` claim which is not guaranteed to be version 4); internally-generated identifiers (`eventId`, `subscriptionId`, `reportId`) SHALL conform to UUID v4 format
 2. THE Data_API SHALL validate that `subscriptionParams.minMagnitude` is between 0 and 10 inclusive
 3. THE Data_API SHALL validate that `subscriptionParams.region` is one of: "pacific", "americas", "europe", "asia", "africa", or undefined
 4. THE Data_API SHALL validate that `briefingPrompt` is non-empty and does not exceed 2000 characters

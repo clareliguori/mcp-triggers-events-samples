@@ -43,12 +43,26 @@ export const BRIEFING_PROMPT_MIN_LENGTH = 1;
 export const BRIEFING_PROMPT_MAX_LENGTH = 2000;
 
 /**
- * UUID v4 format. Used for customerId, eventId, subscriptionId, reportId.
+ * UUID v4 format. Used for internally-generated identifiers (eventId,
+ * subscriptionId, reportId) which are created with `crypto.randomUUID()` and
+ * are therefore always v4.
  *
  * Validates Requirement 16.1.
  */
 export const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * General UUID format (any version 1-8, RFC 4122 variant). Used for
+ * `customerId`, which equals the Cognito User Pool `sub` claim. Cognito subs
+ * are UUIDs but are NOT guaranteed to be version 4 (observed subs use other
+ * version nibbles), so customerId must be validated against this looser regex
+ * rather than {@link UUID_V4_REGEX}, which would reject legitimate users.
+ *
+ * Validates Requirement 16.1.
+ */
+export const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Validates a 5-field cron expression with the form:

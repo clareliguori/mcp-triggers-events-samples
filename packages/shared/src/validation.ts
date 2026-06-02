@@ -18,6 +18,7 @@ import {
   MAX_MAGNITUDE,
   MIN_MAGNITUDE,
   REGIONS,
+  UUID_REGEX,
   UUID_V4_REGEX,
   WHSEC_SECRET_MAX_BYTES,
   WHSEC_SECRET_MIN_BYTES,
@@ -29,10 +30,22 @@ import {
 // Primitive helpers
 // ---------------------------------------------------------------------------
 
-/** Strict UUID v4. Validates Requirement 16.1. */
+/** Strict UUID v4. Used for internally-generated ids (eventId, subscriptionId,
+ * reportId), which are created with `crypto.randomUUID()`. Validates
+ * Requirement 16.1. */
 export const uuidV4Schema = z
   .string()
   .regex(UUID_V4_REGEX, "must be a valid UUID v4");
+
+/**
+ * Customer identifier schema. `customerId` equals the Cognito User Pool `sub`,
+ * which is a UUID but NOT guaranteed to be version 4, so it is validated
+ * against the general UUID regex rather than {@link uuidV4Schema} (which would
+ * reject legitimate Cognito users). Validates Requirement 16.1.
+ */
+export const customerIdSchema = z
+  .string()
+  .regex(UUID_REGEX, "must be a valid UUID");
 
 /** ISO 8601 datetime string. */
 export const isoDateTimeSchema = z
@@ -111,7 +124,7 @@ export const customerConfigInputSchema = z.object({
 /** Full CustomerConfig as stored in DynamoDB. */
 export const customerConfigSchema = customerConfigInputSchema.extend({
   /** Validates Requirement 16.1. */
-  customerId: uuidV4Schema,
+  customerId: customerIdSchema,
   active: z.boolean(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
@@ -139,7 +152,7 @@ export const earthquakeDetectedDataSchema = z.object({
 
 export const briefingTriggerDataSchema = z.object({
   triggerType: z.enum(["scheduled", "manual"]),
-  customerId: uuidV4Schema,
+  customerId: customerIdSchema,
   reason: z.string().optional(),
   scheduledTime: isoDateTimeSchema,
 });
@@ -204,7 +217,7 @@ export const subscribeResultSchema = z.object({
 
 export const webhookSubscriptionSchema = z.object({
   subscriptionId: uuidV4Schema,
-  customerId: uuidV4Schema,
+  customerId: customerIdSchema,
   serverEndpoint: z.string().url(),
   eventName: z.enum([
     EVENT_NAME_EARTHQUAKE_DETECTED,
@@ -251,7 +264,7 @@ export const notableQuakeSchema = z.object({
 export const briefingReportSchema = z
   .object({
     reportId: uuidV4Schema,
-    customerId: uuidV4Schema,
+    customerId: customerIdSchema,
     customerDisplayName: z.string(),
     briefingPrompt: z
       .string()

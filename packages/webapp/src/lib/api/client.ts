@@ -3,9 +3,10 @@
 // A small, general-purpose HTTP helper for calling the Data API
 // (`https://api.earthquake-agent.<parentDomain>`). It resolves the base URL
 // from the runtime `config.json` (see `$lib/auth/config`) and attaches a fresh
-// Cognito access token as a `Bearer` Authorization header on every request,
+// Cognito id token as a `Bearer` Authorization header on every request,
 // transparently refreshing the token when it is near expiry via
-// `getValidAccessToken()`.
+// `getValidAccessToken()` (the API Gateway Cognito authorizer validates the id
+// token).
 //
 // This module is intentionally endpoint-agnostic so the config page (task 12.3),
 // the reports view (task 12.4), and the conversation history view (task 12.5)

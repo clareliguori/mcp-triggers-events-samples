@@ -28,7 +28,7 @@ import { Sha256 } from "@aws-crypto/sha256-js";
 import { defaultProvider } from "@aws-sdk/credential-provider-node";
 import { SignatureV4 } from "@smithy/signature-v4";
 import type { HttpRequest } from "@smithy/types";
-import { uuidV4Schema } from "@mcp-events/shared";
+import { customerIdSchema } from "@mcp-events/shared";
 
 import { HttpError, badRequest } from "../http.js";
 import type { ApiResult, RouteContext } from "../types.js";
@@ -124,13 +124,13 @@ function schedulerMcpUrl(): string {
 /**
  * Validate and return the `customerId` path parameter.
  *
- * @throws HttpError 400 when it is missing or not a UUID v4 (the `customerId`
- *   is the Cognito `sub`, a UUID v4).
+ * @throws HttpError 400 when it is missing or not a UUID (the `customerId`
+ *   is the Cognito `sub`, a UUID but not necessarily v4).
  */
 function requireCustomerId(ctx: RouteContext): string {
-  const result = uuidV4Schema.safeParse(ctx.pathParameters.customerId);
+  const result = customerIdSchema.safeParse(ctx.pathParameters.customerId);
   if (!result.success) {
-    throw badRequest("customerId must be a valid UUID v4");
+    throw badRequest("customerId must be a valid UUID");
   }
   return result.data;
 }

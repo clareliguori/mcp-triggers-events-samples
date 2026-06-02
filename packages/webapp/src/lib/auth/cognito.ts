@@ -10,9 +10,12 @@ import type { CognitoConfig } from "./config-schema.js";
 
 /** The set of tokens returned by the Cognito token endpoint. */
 export interface TokenSet {
-  /** OIDC id token (JWT). Carries the `sub` claim used as customerId. */
+  /** OIDC id token (JWT). Carries the `sub` claim used as customerId, and is
+   * the Bearer credential sent to the Data API (its Cognito authorizer
+   * validates id tokens). */
   idToken: string;
-  /** OAuth access token (JWT). Sent as the Bearer credential to the Data API. */
+  /** OAuth access token (JWT). Retained for completeness; not sent to the Data
+   * API, whose API Gateway Cognito authorizer validates the id token. */
   accessToken: string;
   /**
    * Refresh token. Present on the authorization-code exchange; Cognito does NOT
