@@ -258,6 +258,12 @@ it runs as part of `npm test`.
   identifiers with `_`.
 - Do not edit generated artifacts: `**/dist`, `**/*.tsbuildinfo`,
   `packages/cdk/cdk.out`, `packages/webapp/.svelte-kit`.
+- **Vendored MCP SDK**: `@modelcontextprotocol/server` and
+  `@modelcontextprotocol/core` are installed from tarballs in `vendor/`,
+  built from a [fork](https://github.com/clareliguori/mcp-typescript-sdk/tree/events-bufferemits-and-examples)
+  that adds serverless support (`WebhookSubscriptionStore`, `serverless`
+  mode, `flush()`). After updating the fork, regenerate tarballs with
+  `pnpm pack` (see README Install section) and run `npm install`.
 
 ## AWS guidance
 

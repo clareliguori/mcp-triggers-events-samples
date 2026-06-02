@@ -108,6 +108,22 @@ npm install
 This installs all workspaces. Shared dependencies (CDK, Strands SDK, MCP SDK,
 zod, etc.) are hoisted to the root `package.json`.
 
+The MCP SDK (`@modelcontextprotocol/server` and `@modelcontextprotocol/core`)
+is installed from vendored tarballs in `vendor/` — these are built from a
+[fork](https://github.com/clareliguori/mcp-typescript-sdk/tree/events-bufferemits-and-examples)
+of the upstream MCP TypeScript SDK that adds serverless support
+(`WebhookSubscriptionStore` interface, `serverless` mode, and `flush()`). To
+regenerate the tarballs after updating the fork:
+
+```bash
+cd ~/code/mcp/typescript-sdk
+pnpm install && pnpm -r build
+pnpm --filter @modelcontextprotocol/core pack --pack-destination /tmp/mcp-sdk-packs/
+pnpm --filter @modelcontextprotocol/server pack --pack-destination /tmp/mcp-sdk-packs/
+cp /tmp/mcp-sdk-packs/*.tgz ~/code/mcp-triggers-events-samples/vendor/
+cd ~/code/mcp-triggers-events-samples && npm install
+```
+
 ## Build
 
 ```bash
