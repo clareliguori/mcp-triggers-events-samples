@@ -22,8 +22,8 @@ export function addLambdaAlarms(
   scope: Construct,
   id: string,
   fn: lambda.IFunction,
-): void {
-  new cloudwatch.Alarm(scope, `${id}ErrorAlarm`, {
+): { errorAlarm: cloudwatch.Alarm; throttleAlarm: cloudwatch.Alarm } {
+  const errorAlarm = new cloudwatch.Alarm(scope, `${id}ErrorAlarm`, {
     alarmName: `earthquake-agent-${id}-errors`,
     alarmDescription: `Lambda errors on ${id}`,
     metric: fn.metricErrors({
@@ -37,7 +37,7 @@ export function addLambdaAlarms(
     treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
   });
 
-  new cloudwatch.Alarm(scope, `${id}ThrottleAlarm`, {
+  const throttleAlarm = new cloudwatch.Alarm(scope, `${id}ThrottleAlarm`, {
     alarmName: `earthquake-agent-${id}-throttles`,
     alarmDescription: `Lambda throttles on ${id}`,
     metric: fn.metricThrottles({
@@ -50,6 +50,8 @@ export function addLambdaAlarms(
       cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
     treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
   });
+
+  return { errorAlarm, throttleAlarm };
 }
 
 /**
@@ -61,8 +63,8 @@ export function addApiGatewayAlarms(
   scope: Construct,
   id: string,
   api: apigateway.RestApi,
-): void {
-  new cloudwatch.Alarm(scope, `${id}5xxAlarm`, {
+): { serverErrorAlarm: cloudwatch.Alarm } {
+  const serverErrorAlarm = new cloudwatch.Alarm(scope, `${id}5xxAlarm`, {
     alarmName: `earthquake-agent-${id}-5xx`,
     alarmDescription: `API Gateway 5xx errors on ${id}`,
     metric: api.metricServerError({
@@ -75,4 +77,6 @@ export function addApiGatewayAlarms(
       cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
     treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
   });
+
+  return { serverErrorAlarm };
 }

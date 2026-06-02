@@ -5,6 +5,7 @@ import { AuthStack } from "../lib/auth-stack.js";
 import { DataApiStack } from "../lib/data-api-stack.js";
 import { DnsRegionalStack } from "../lib/dns-regional-stack.js";
 import { DnsUsEast1Stack } from "../lib/dns-us-east-1-stack.js";
+import { MonitoringStack } from "../lib/monitoring-stack.js";
 import { SchedulerServerStack } from "../lib/scheduler-server-stack.js";
 import { SubscriptionManagerStack } from "../lib/subscription-manager-stack.js";
 import { UsgsServerStack } from "../lib/usgs-server-stack.js";
@@ -175,5 +176,16 @@ dataApi.addDependency(dnsRegional); // cert ARN + subdomain zone id
 dataApi.addDependency(auth); // EarthquakeAgent-UserPoolId
 dataApi.addDependency(agent); // EarthquakeAgent-SessionsBucketArn
 subscriptionManager.addDependency(dataApi); // CustomerConfig table + stream ARNs
+
+// MonitoringStack (composite alarm that aggregates all component alarms into a
+// single system health indicator). Depends on every stack that creates alarms
+// so the child alarms exist before the composite alarm references them.
+const monitoring = new MonitoringStack(app, "MonitoringStack", { env });
+monitoring.addDependency(agent);
+monitoring.addDependency(dataApi);
+monitoring.addDependency(webhookReceiver);
+monitoring.addDependency(subscriptionManager);
+monitoring.addDependency(usgsServer);
+monitoring.addDependency(schedulerServer);
 
 app.synth();
