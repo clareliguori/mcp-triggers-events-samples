@@ -119,11 +119,10 @@
             <ShieldCheckIcon class="size-5 text-primary" />
           </div>
           <div>
-            <h3 class="font-semibold">Isolated &amp; secure</h3>
+            <h3 class="font-semibold">Per-customer sessions</h3>
             <p class="mt-1 text-sm text-muted-foreground">
-              Each customer has independent subscriptions, an isolated agent
-              session, and private reports. Your data never leaks across
-              accounts.
+              Each customer gets independent subscriptions, their own agent
+              session, and separate reports.
             </p>
           </div>
         </div>
@@ -132,7 +131,7 @@
 
     <!-- Footer -->
     <footer class="border-t px-4 py-6 text-center text-xs text-muted-foreground">
-      Built with Strands Agents, MCP Events, and AWS serverless.
+      Built with Strands Agents, MCP Events, and AWS Serverless.
     </footer>
   </main>
 {/if}
