@@ -60,30 +60,34 @@ const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 // MCP Server (SDK) — protocol handling for events/list, subscribe, unsubscribe
 // ---------------------------------------------------------------------------
 
-const server = new McpServer(
-  { name: "scheduler-briefing", version: "1.0.0" },
-  {
-    events: {
-      serverless: true,
-      webhook: {
-        ttlMs: 30 * 60 * 1000,
-        getPrincipal: (ctx) => ctx.http?.authInfo?.clientId ?? ctx.sessionId ?? "lambda",
+function createServer(): McpServer {
+  const s = new McpServer(
+    { name: "scheduler-briefing", version: "1.0.0" },
+    {
+      events: {
+        serverless: true,
+        webhook: {
+          ttlMs: 30 * 60 * 1000,
+          getPrincipal: (ctx) => ctx.http?.authInfo?.clientId ?? ctx.sessionId ?? "lambda",
+        },
       },
     },
-  },
-);
+  );
 
-server.registerEvent("briefing.trigger", {
-  description:
-    "Emitted per customer schedule to trigger earthquake briefing generation",
-  inputSchema: z.object({
-    schedule: z.string().optional().describe("Cron expression for this customer's briefing schedule"),
-  }),
-  emitOnly: true,
-});
+  s.registerEvent("briefing.trigger", {
+    description:
+      "Emitted per customer schedule to trigger earthquake briefing generation",
+    inputSchema: z.object({
+      schedule: z.string().optional().describe("Cron expression for this customer's briefing schedule"),
+    }),
+    emitOnly: true,
+  });
+
+  return s;
+}
 
 /** SDK-based MCP protocol handler for API Gateway requests. */
-const mcpHandler = createMcpLambdaHandler(server);
+const mcpHandler = createMcpLambdaHandler(createServer);
 
 // ---------------------------------------------------------------------------
 // Event type constant (preserved for tests)

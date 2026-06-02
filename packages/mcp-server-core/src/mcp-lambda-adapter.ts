@@ -63,16 +63,18 @@ async function toApiGatewayResult(
 
 /**
  * Create an API Gateway Lambda handler that serves the MCP protocol via
- * the SDK's streamable HTTP transport. Each invocation is stateless — the
- * server is initialized, handles the request, then discards (subscription
- * state is externalized to the WebhookSubscriptionStore).
+ * the SDK's streamable HTTP transport. Each invocation creates a fresh
+ * transport and connects a new server instance (subscription state is
+ * externalized to the WebhookSubscriptionStore).
  */
 export function createMcpLambdaHandler(
-  server: McpServer,
+  serverFactory: () => McpServer,
 ): (event: APIGatewayProxyEvent) => Promise<APIGatewayProxyResult> {
   return async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+    const server = serverFactory();
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless — no session tracking
+      enableJsonResponse: true, // return JSON instead of SSE for Lambda compatibility
     });
 
     await server.connect(transport);

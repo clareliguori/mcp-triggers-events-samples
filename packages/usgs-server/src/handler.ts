@@ -54,31 +54,35 @@ export type { DeliveryOutcome, FetchLike } from "@mcp-events/mcp-server-core";
 // MCP Server (SDK) — protocol handling
 // ---------------------------------------------------------------------------
 
-const server = new McpServer(
-  { name: "usgs-earthquake-feed", version: "1.0.0" },
-  {
-    events: {
-      serverless: true,
-      webhook: {
-        ttlMs: 30 * 60 * 1000,
-        getPrincipal: (ctx) => ctx.http?.authInfo?.clientId ?? ctx.sessionId ?? "lambda",
+function createServer(): McpServer {
+  const s = new McpServer(
+    { name: "usgs-earthquake-feed", version: "1.0.0" },
+    {
+      events: {
+        serverless: true,
+        webhook: {
+          ttlMs: 30 * 60 * 1000,
+          getPrincipal: (ctx) => ctx.http?.authInfo?.clientId ?? ctx.sessionId ?? "lambda",
+        },
       },
     },
-  },
-);
+  );
 
-server.registerEvent("earthquake.detected", {
-  description:
-    "Emitted when a new earthquake is detected matching subscription filters",
-  inputSchema: z.object({
-    minMagnitude: z.number().optional().describe("Only deliver earthquakes >= this magnitude"),
-    region: z.string().optional().describe("Geographic region filter"),
-    maxDepthKm: z.number().optional().describe("Only deliver earthquakes shallower than this depth (km)"),
-  }),
-  emitOnly: true,
-});
+  s.registerEvent("earthquake.detected", {
+    description:
+      "Emitted when a new earthquake is detected matching subscription filters",
+    inputSchema: z.object({
+      minMagnitude: z.number().optional().describe("Only deliver earthquakes >= this magnitude"),
+      region: z.string().optional().describe("Geographic region filter"),
+      maxDepthKm: z.number().optional().describe("Only deliver earthquakes shallower than this depth (km)"),
+    }),
+    emitOnly: true,
+  });
 
-const mcpHandler = createMcpLambdaHandler(server);
+  return s;
+}
+
+const mcpHandler = createMcpLambdaHandler(createServer);
 
 // ---------------------------------------------------------------------------
 // Event type constant (preserved for tests)
