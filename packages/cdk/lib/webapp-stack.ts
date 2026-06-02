@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import * as cdk from "aws-cdk-lib";
 import type * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
@@ -5,6 +6,7 @@ import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53targets from "aws-cdk-lib/aws-route53-targets";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import { Construct } from "constructs";
 import { resolveDomainName, type SharedProps } from "./shared-props.js";
 
@@ -54,10 +56,21 @@ export interface WebappStackProps extends cdk.StackProps, SharedProps {
  * target region while satisfying that constraint. The subdomain zone id is
  * imported by name from DnsRegionalStack (same region).
  *
- * ASSET DEPLOYMENT NOTE: The SvelteKit app is built in task 12.x. This stack
- * provisions the bucket and distribution only; deploying the built static
- * assets into the bucket (for example with an `s3deploy.BucketDeployment`
- * pointed at the webapp build output) is wired up once the webapp exists.
+ * ASSET DEPLOYMENT (Requirement 10.1): The built SvelteKit SPA
+ * (`packages/webapp/build`, produced by `npm run build -w @mcp-events/webapp`)
+ * is published into the site bucket by an `s3deploy.BucketDeployment`, which
+ * also invalidates the CloudFront distribution so a redeploy serves fresh
+ * assets immediately. The webapp loads its runtime configuration from
+ * `config.json` at the site root (see the webapp's `$lib/auth/config`), so this
+ * stack OVERWRITES that file at deploy time with the real Cognito and Data API
+ * values via a second inline `BucketDeployment` source. This keeps the built
+ * artifact environment agnostic (the committed `config.json` carries only local
+ * dev placeholders) while the deployed site gets the correct values:
+ * - `clientId` is imported by name from AuthStack
+ *   (`EarthquakeAgent-UserPoolClientId`).
+ * - `hostedUiDomain` and `apiBaseUrl` are deterministic from the shared domain
+ *   (`auth.`/`api.<subdomain>.<parentDomain>`), so they are recomputed here
+ *   rather than imported, avoiding synth-time stack ordering dependencies.
  */
 export class WebappStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: WebappStackProps) {
@@ -158,6 +171,51 @@ export class WebappStack extends cdk.Stack {
       ),
       comment:
         "Alias to the webapp CloudFront distribution (app.earthquake-agent.*)",
+    });
+
+    // --- SPA asset deployment + runtime config injection ---------------------
+    // Publish the built SvelteKit SPA into the bucket and invalidate the
+    // distribution. The build output lives at packages/webapp/build; this stack
+    // compiles to packages/cdk/dist/lib, so walk up to the repo's packages/
+    // directory. `npm run build -w @mcp-events/webapp` must run before deploy.
+    const webappBuildDir = path.join(
+      __dirname,
+      "..",
+      "..",
+      "..",
+      "webapp",
+      "build",
+    );
+
+    // The webapp loads runtime config from `config.json` at the site root. The
+    // built artifact carries only dev placeholders, so overwrite it at deploy
+    // time with the real values. clientId is imported by name from AuthStack;
+    // the hosted UI domain and API base URL are deterministic from the shared
+    // domain (recomputed here to avoid synth-time stack ordering deps).
+    const userPoolClientId = cdk.Fn.importValue(
+      "EarthquakeAgent-UserPoolClientId",
+    );
+    const runtimeConfig = {
+      cognito: {
+        hostedUiDomain: `auth.${domainName}`,
+        clientId: userPoolClientId,
+        scopes: ["openid", "email", "profile"],
+      },
+      apiBaseUrl: `https://api.${domainName}`,
+    };
+
+    new s3deploy.BucketDeployment(this, "DeployWebapp", {
+      destinationBucket: siteBucket,
+      distribution,
+      distributionPaths: ["/*"],
+      sources: [
+        // The built SPA assets.
+        s3deploy.Source.asset(webappBuildDir),
+        // Overwrite config.json with the deploy-time values. clientId is an
+        // unresolved CloudFormation token, so use jsonData (the BucketDeployment
+        // resolves the token at deploy time) rather than a static file.
+        s3deploy.Source.jsonData("config.json", runtimeConfig),
+      ],
     });
 
     // --- Cross-stack exports --------------------------------------------------
