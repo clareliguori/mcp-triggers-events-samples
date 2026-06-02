@@ -65,7 +65,7 @@
           to your region.
         </p>
         <div class="flex flex-wrap items-center justify-center gap-3 pt-2">
-          <Button size="lg" onclick={() => void signIn()}>Get started</Button>
+          <Button size="lg" onclick={() => void signIn()}>Sign in</Button>
           <Button size="lg" variant="outline" onclick={() => void signUp()}>
             Create account
           </Button>
