@@ -303,4 +303,5 @@ export const reportSummarySchema = z.object({
 
 export type CustomerConfigInput = z.infer<typeof customerConfigInputSchema>;
 export type SubscribeParamsInput = z.infer<typeof subscribeParamsSchema>;
+export type SubscribeResult = z.output<typeof subscribeResultSchema>;
 export type McpEventPayloadInput = z.infer<typeof mcpEventPayloadSchema>;

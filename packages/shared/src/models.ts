@@ -335,13 +335,6 @@ export interface SubscribeInputSchema {
   schedule?: string;
 }
 
-/** MCP `events/subscribe` response. */
-export interface SubscribeResult {
-  subscriptionId: string;
-  /** ISO 8601. */
-  expiresAt: string;
-}
-
 // ---------------------------------------------------------------------------
 // USGS cursor state
 // ---------------------------------------------------------------------------
