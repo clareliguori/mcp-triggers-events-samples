@@ -14,30 +14,30 @@
     <p class="text-sm text-muted-foreground">Loading…</p>
   </main>
 {:else if auth.isAuthenticated}
-  <!-- Authenticated: compact dashboard hub -->
+  <!-- Authenticated: dashboard hub -->
   <main
-    class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-6 px-4 text-center"
+    class="mx-auto flex min-h-svh max-w-3xl flex-col items-center justify-center gap-8 px-4 text-center"
   >
-    <div class="flex items-center gap-3">
-      <ActivityIcon class="size-8 text-primary" />
-      <h1 class="text-3xl font-semibold tracking-tight">Earthquake Agent</h1>
+    <div class="flex items-center gap-4">
+      <ActivityIcon class="size-10 text-primary" />
+      <h1 class="text-4xl font-bold tracking-tight">Earthquake Agent</h1>
     </div>
-    <div class="flex flex-col items-center gap-3">
-      <p class="text-sm">
-        Signed in{#if auth.email}{" "}as <span class="font-medium">{auth.email}</span>{/if}.
+    <div class="flex flex-col items-center gap-5">
+      <p class="text-base text-muted-foreground">
+        Signed in{#if auth.email}{" "}as <span class="font-medium text-foreground">{auth.email}</span>{/if}
       </p>
-      <p class="text-xs text-muted-foreground">
-        Customer ID: <code>{auth.customerId}</code>
+      <p class="text-sm text-muted-foreground">
+        Customer ID: <code class="rounded bg-secondary px-1.5 py-0.5">{auth.customerId}</code>
       </p>
-      <div class="flex flex-wrap items-center justify-center gap-2">
-        <Button href="/config">Configure monitoring</Button>
-        <Button variant="outline" href="/reports">View reports</Button>
-        <Button variant="outline" href="/conversation">View conversation</Button>
-        <Button variant="ghost" onclick={() => void signOut()}>
-          <LogOutIcon />
-          Sign out
-        </Button>
+      <div class="flex flex-wrap items-center justify-center gap-3 pt-2">
+        <Button size="lg" href="/config">Configure monitoring</Button>
+        <Button size="lg" variant="outline" href="/reports">View reports</Button>
+        <Button size="lg" variant="outline" href="/conversation">View conversation</Button>
       </div>
+      <Button variant="ghost" onclick={() => void signOut()}>
+        <LogOutIcon />
+        Sign out
+      </Button>
     </div>
   </main>
 {:else}
