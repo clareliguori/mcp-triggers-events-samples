@@ -46,7 +46,6 @@ import {
 
 import {
   type FetchLike,
-  // BRIEFING_EVENT_TYPE removed — SDK owns the event type declaration now
   MCP_SUBSCRIPTION_ID_HEADER,
   WEBHOOK_RETRY_DELAYS_MS,
   deliverBriefing,
