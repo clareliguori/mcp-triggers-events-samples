@@ -762,6 +762,7 @@ const defaultSubscribeOnServer: RefreshDependencies["subscribeOnServer"] =
       const wireParams = {
         name: inputs.server.eventName,
         delivery: {
+          mode: "webhook" as const,
           url: inputs.callbackUrl,
           secret: inputs.secret,
         },

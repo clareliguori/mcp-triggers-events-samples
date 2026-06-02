@@ -196,6 +196,7 @@ const defaultMcpSubscriber: McpSubscriber = async (serverUrl, params) => {
     const wireParams = {
       name: params.event,
       delivery: {
+        mode: "webhook" as const,
         url: params.delivery.url,
         secret: params.delivery.secret,
       },
