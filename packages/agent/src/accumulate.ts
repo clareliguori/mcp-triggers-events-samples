@@ -59,6 +59,7 @@ import {
   Agent,
   BedrockModel,
   SessionManager,
+  SlidingWindowConversationManager,
   type ConversationManager,
   type Model,
   type ToolList,
@@ -100,6 +101,17 @@ export const AGENT_SCOPE_ID = "agent";
  * realistic SQS redelivery window without growing the session unbounded.
  */
 export const PROCESSED_EVENT_IDS_LIMIT = 200;
+
+/**
+ * Maximum number of messages retained in the conversation history between
+ * briefings. Each earthquake event produces two messages (user + assistant), so
+ * a window of 40 retains roughly the last 20 earthquakes. The briefing path
+ * still sees the full persisted history (via NullConversationManager) before
+ * clearing; this window only bounds what is sent to the model during earthquake
+ * analysis and what is persisted to S3 after each event, preventing context
+ * window overflow for customers with infrequent briefing schedules.
+ */
+export const CONVERSATION_WINDOW_SIZE = 40;
 
 /**
  * Default Bedrock model id used when `BEDROCK_MODEL_ID` is not set in the
@@ -410,9 +422,11 @@ export function buildAgent(
     systemPrompt,
     sessionManager,
     ...(options.tools !== undefined && { tools: options.tools }),
-    ...(options.conversationManager !== undefined && {
-      conversationManager: options.conversationManager,
-    }),
+    conversationManager:
+      options.conversationManager ??
+      new SlidingWindowConversationManager({
+        windowSize: CONVERSATION_WINDOW_SIZE,
+      }),
     // The agent runs headless in Lambda; no console output.
     printer: false,
   });
