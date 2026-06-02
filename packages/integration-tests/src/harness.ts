@@ -337,6 +337,20 @@ export class Harness {
     );
   }
 
+  /**
+   * List all customers via the backend route `GET /backend/customers`.
+   * This is the route the Subscription Manager's refresh path depends on.
+   */
+  listCustomers(): Promise<HttpResult> {
+    return signedRequest(
+      {
+        method: "GET",
+        url: this.dataApi("/backend/customers"),
+      },
+      this.config.region,
+    );
+  }
+
   /** List a customer's subscriptions. */
   listSubscriptions(customerId: string): Promise<HttpResult> {
     return signedRequest(

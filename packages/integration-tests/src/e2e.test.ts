@@ -431,6 +431,32 @@ flow(
       },
       POLL.timeoutMs,
     );
+
+    it(
+      "GET /backend/customers returns customers list (subscription manager contract)",
+      async () => {
+        // Validates: the Data API route the Subscription Manager's refresh
+        // path depends on exists and returns the expected shape.
+        const customerId = newCustomerId();
+        await harness.putConfig(customerId, customerConfigInput());
+
+        try {
+          const result = await harness.listCustomers();
+          expect(result.statusCode).toBe(200);
+          const body = result.json as { customers: unknown[] };
+          expect(body).toHaveProperty("customers");
+          expect(Array.isArray(body.customers)).toBe(true);
+          // The customer we just created should be in the list.
+          const found = body.customers.find(
+            (c) => (c as { customerId: string }).customerId === customerId,
+          );
+          expect(found).toBeDefined();
+        } finally {
+          await harness.deleteConfig(customerId);
+        }
+      },
+      POLL.timeoutMs,
+    );
   },
 );
 
