@@ -677,9 +677,9 @@ function dataApiBaseUrl(): string {
 const defaultListActiveCustomers: RefreshDependencies["listActiveCustomers"] =
   async () => {
     const base = dataApiBaseUrl();
-    const listed = await dataApiFetch("GET", `${base}/customers`);
+    const listed = await dataApiFetch("GET", `${base}/backend/customers`);
     if (listed.statusCode < 200 || listed.statusCode >= 300) {
-      throw new Error(`Data API GET /customers returned ${listed.statusCode}`);
+      throw new Error(`Data API GET /backend/customers returned ${listed.statusCode}`);
     }
     const configs = parseCustomers(listed.body).filter((c) => c.active);
 
