@@ -13,6 +13,8 @@
  * of each model.
  */
 
+import type { TypedEventOccurrence } from "@modelcontextprotocol/server";
+
 import type { Region } from "./constants.js";
 
 // ---------------------------------------------------------------------------
@@ -64,22 +66,17 @@ export interface SubscriptionParams {
 
 /**
  * Event payload delivered via webhook by both MCP servers.
- * Follows the MCP Events extension specification.
+ * Extends the SDK's TypedEventOccurrence with app-specific constraints:
+ * narrowed event name union and required (non-nullable) cursor.
  */
 export interface McpEventPayload<
   TData extends EarthquakeDetectedData | BriefingTriggerData =
     | EarthquakeDetectedData
     | BriefingTriggerData,
-> {
-  /** Unique event identifier (UUID v4). */
-  eventId: string;
-  /** Event type name. */
+> extends TypedEventOccurrence<TData> {
+  /** Narrowed to this app's event types. */
   name: "earthquake.detected" | "briefing.trigger";
-  /** ISO 8601 timestamp of event emission. */
-  timestamp: string;
-  /** Event-specific data payload. */
-  data: TData;
-  /** Opaque cursor for ordering / resumption. */
+  /** Always provided in this app (earthquake ID or customer:scheduledTime). */
   cursor: string;
 }
 
