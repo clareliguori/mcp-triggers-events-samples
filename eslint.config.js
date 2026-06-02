@@ -27,8 +27,9 @@ export default tseslint.config(
       "**/*.tsbuildinfo",
       "**/node_modules/**",
       "packages/cdk/cdk.context.json",
-      // The webapp is a not-yet-initialized SvelteKit stub (see task 12.1);
-      // lint it once it has real source + its own tooling.
+      // The webapp is a SvelteKit SPA with its own tooling (svelte-check via
+      // `npm run check`, vite build, and its own vitest config). It is linted
+      // through that toolchain, not the root type-checked ESLint pipeline.
       "packages/webapp/**",
       "eslint.config.js",
     ],
