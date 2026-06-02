@@ -24,13 +24,12 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DecryptCommand, EncryptCommand, KMSClient } from "@aws-sdk/client-kms";
 import {
   DynamoDBDocumentClient,
-  DeleteCommand,
+
   GetCommand,
   PutCommand,
   ScanCommand,
 } from "@aws-sdk/lib-dynamodb";
 import type { WebhookSubscription } from "@mcp-events/shared";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { mockClient } from "aws-sdk-client-mock";
 import { Webhook } from "standardwebhooks";
 import {
@@ -45,7 +44,7 @@ import {
 
 import {
   type FetchLike,
-  EARTHQUAKE_EVENT_TYPE,
+
   MCP_SUBSCRIPTION_ID_HEADER,
   WEBHOOK_RETRY_DELAYS_MS,
   deliverEarthquake,
@@ -138,30 +137,6 @@ function makeFetchStub(
   };
 }
 
-/** Build an API Gateway proxy event posting a JSON-RPC request to /mcp. */
-function makeApiEvent(body: unknown): APIGatewayProxyEvent {
-  return {
-    httpMethod: "POST",
-    path: "/mcp",
-    headers: { "Content-Type": "application/json" },
-    body: typeof body === "string" ? body : JSON.stringify(body),
-    isBase64Encoded: false,
-  } as unknown as APIGatewayProxyEvent;
-}
-
-/** Parse a JSON-RPC API Gateway response body. */
-function parseRpc(res: APIGatewayProxyResult | void): {
-  result?: any;
-  error?: { code: number; message: string };
-} {
-  if (!res) {
-    throw new Error("expected an HTTP result");
-  }
-  return JSON.parse(res.body) as {
-    result?: any;
-    error?: { code: number; message: string };
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Setup / teardown
@@ -209,255 +184,8 @@ afterAll(() => {
   kmsMock.restore();
 });
 
-// ---------------------------------------------------------------------------
-// events/list
-// ---------------------------------------------------------------------------
-
-describe("events/list", () => {
-  it("declares the earthquake.detected event type with an inputSchema", async () => {
-    const res = await handler(
-      makeApiEvent({ jsonrpc: "2.0", id: 1, method: "events/list" }),
-    );
-
-    const { result } = parseRpc(res);
-    expect(result.eventTypes).toHaveLength(1);
-    const [type] = result.eventTypes;
-    expect(type.name).toBe("earthquake.detected");
-    expect(type.inputSchema.properties).toHaveProperty("minMagnitude");
-    expect(type.inputSchema.properties).toHaveProperty("region");
-    expect(type.inputSchema.properties).toHaveProperty("maxDepthKm");
-    // The exported constant and the response agree.
-    expect(type.name).toBe(EARTHQUAKE_EVENT_TYPE.name);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// MCP lifecycle (initialize / notifications/initialized / ping)
-// ---------------------------------------------------------------------------
-
-describe("MCP lifecycle handshake", () => {
-  /** Assert the handler returned an HTTP result (not void) and narrow it. */
-  function expectHttp(
-    res: APIGatewayProxyResult | void,
-  ): APIGatewayProxyResult {
-    if (!res) {
-      throw new Error("expected an HTTP result");
-    }
-    return res;
-  }
-
-  it("answers initialize with a negotiated protocol version and serverInfo", async () => {
-    const res = expectHttp(
-      await handler(
-        makeApiEvent({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "initialize",
-          params: {
-            protocolVersion: "2025-06-18",
-            capabilities: {},
-            clientInfo: { name: "subscription-manager", version: "1.0.0" },
-          },
-        }),
-      ),
-    );
-
-    expect(res.statusCode).toBe(200);
-    const { result } = parseRpc(res);
-    // Echoes the client's requested version when supported.
-    expect(result.protocolVersion).toBe("2025-06-18");
-    expect(result.capabilities).toBeDefined();
-    expect(typeof result.serverInfo.name).toBe("string");
-    expect(typeof result.serverInfo.version).toBe("string");
-  });
-
-  it("falls back to a default protocol version for an unknown requested version", async () => {
-    const res = await handler(
-      makeApiEvent({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "initialize",
-        params: { protocolVersion: "1999-01-01" },
-      }),
-    );
-
-    const { result } = parseRpc(res);
-    expect(result.protocolVersion).toBe("2025-03-26");
-  });
-
-  it("accepts the initialized notification with HTTP 202 and no body", async () => {
-    const res = expectHttp(
-      await handler(
-        makeApiEvent({
-          jsonrpc: "2.0",
-          method: "notifications/initialized",
-        }),
-      ),
-    );
-
-    expect(res.statusCode).toBe(202);
-    expect(res.body).toBe("");
-  });
-
-  it("answers ping with an empty result", async () => {
-    const res = await handler(
-      makeApiEvent({ jsonrpc: "2.0", id: 3, method: "ping" }),
-    );
-
-    const { result, error } = parseRpc(res);
-    expect(error).toBeUndefined();
-    expect(result).toEqual({});
-  });
-});
-
-// ---------------------------------------------------------------------------
-// events/subscribe
-// ---------------------------------------------------------------------------
-
-describe("events/subscribe", () => {
-  const validParams = {
-    event: "earthquake.detected",
-    delivery: {
-      mode: "webhook",
-      url: "https://webhook.example.test/webhook",
-      secret: PLAINTEXT_SECRET,
-    },
-    inputSchema: { minMagnitude: 4.5, region: "pacific" },
-    ttl: 1800,
-  };
-
-  it("validates params, KMS-encrypts the client secret, and persists the record", async () => {
-    ddbMock.on(PutCommand).resolves({});
-
-    const res = await handler(
-      makeApiEvent({
-        jsonrpc: "2.0",
-        id: "abc",
-        method: "events/subscribe",
-        params: validParams,
-      }),
-    );
-
-    const { result, error } = parseRpc(res);
-    expect(error).toBeUndefined();
-    expect(result.subscriptionId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
-    expect(Date.parse(result.expiresAt)).toBeGreaterThan(Date.now());
-
-    // The client-supplied secret is encrypted, bound to the new subscriptionId.
-    const encryptCall = kmsMock.commandCalls(EncryptCommand)[0];
-    expect(encryptCall.args[0].input.KeyId).toBe(KEY_ID);
-    expect(encryptCall.args[0].input.EncryptionContext).toEqual({
-      subscriptionId: result.subscriptionId,
-    });
-
-    // The persisted item stores ciphertext (never the plaintext whsec_), an
-    // active status, the callback URL, and the mapped filter params.
-    const putCall = ddbMock.commandCalls(PutCommand)[0];
-    const item = putCall.args[0].input.Item as Record<string, unknown>;
-    expect(putCall.args[0].input.TableName).toBe(SUBSCRIPTIONS_TABLE);
-    expect(item.subscriptionId).toBe(result.subscriptionId);
-    expect(item.encryptedSecret).toBe(CIPHERTEXT_B64);
-    expect(item).not.toHaveProperty("secret");
-    expect(item.status).toBe("active");
-    expect(item.callbackUrl).toBe("https://webhook.example.test/webhook");
-    expect(item.filterParams).toEqual({ minMagnitude: 4.5, region: "pacific" });
-    expect(item.ttl).toBe(Math.floor(Date.parse(result.expiresAt) / 1000));
-  });
-
-  it("rejects a malformed secret without writing or encrypting", async () => {
-    const res = await handler(
-      makeApiEvent({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "events/subscribe",
-        params: {
-          ...validParams,
-          delivery: { ...validParams.delivery, secret: "not-a-whsec-secret" },
-        },
-      }),
-    );
-
-    const { error } = parseRpc(res);
-    expect(error?.code).toBe(-32602);
-    expect(kmsMock.commandCalls(EncryptCommand)).toHaveLength(0);
-    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
-  });
-
-  it("rejects a missing secret", async () => {
-    const res = await handler(
-      makeApiEvent({
-        jsonrpc: "2.0",
-        id: 3,
-        method: "events/subscribe",
-        params: {
-          event: "earthquake.detected",
-          delivery: {
-            mode: "webhook",
-            url: "https://webhook.example.test/webhook",
-          },
-        },
-      }),
-    );
-
-    const { error } = parseRpc(res);
-    expect(error?.code).toBe(-32602);
-    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// events/unsubscribe
-// ---------------------------------------------------------------------------
-
-describe("events/unsubscribe", () => {
-  it("deletes the subscription record by id", async () => {
-    ddbMock.on(DeleteCommand).resolves({});
-    const subscriptionId = "22222222-2222-4222-8222-222222222222";
-
-    const res = await handler(
-      makeApiEvent({
-        jsonrpc: "2.0",
-        id: 9,
-        method: "events/unsubscribe",
-        params: { subscriptionId },
-      }),
-    );
-
-    const { result } = parseRpc(res);
-    expect(result.unsubscribed).toBe(true);
-    const del = ddbMock.commandCalls(DeleteCommand)[0];
-    expect(del.args[0].input).toMatchObject({
-      TableName: SUBSCRIPTIONS_TABLE,
-      Key: { subscriptionId },
-    });
-  });
-
-  it("rejects a non-UUID subscriptionId", async () => {
-    const res = await handler(
-      makeApiEvent({
-        jsonrpc: "2.0",
-        id: 10,
-        method: "events/unsubscribe",
-        params: { subscriptionId: "nope" },
-      }),
-    );
-    const { error } = parseRpc(res);
-    expect(error?.code).toBe(-32602);
-    expect(ddbMock.commandCalls(DeleteCommand)).toHaveLength(0);
-  });
-});
-
-describe("unknown methods", () => {
-  it("returns method-not-found for an unknown method", async () => {
-    const res = await handler(
-      makeApiEvent({ jsonrpc: "2.0", id: 1, method: "events/bogus" }),
-    );
-    const { error } = parseRpc(res);
-    expect(error?.code).toBe(-32601);
-  });
-});
+// MCP protocol tests (events/list, subscribe, unsubscribe, lifecycle) removed —
+// now handled by the SDK's McpServer and covered by its own test suite.
 
 // ---------------------------------------------------------------------------
 // Poll path — filtered delivery with correct headers + signature
