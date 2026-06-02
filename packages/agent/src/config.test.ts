@@ -44,7 +44,7 @@ function makeConfig(customerId = CUSTOMER_ID): CustomerConfig {
     displayName: "Acme Seismology",
     subscriptionParams: { minMagnitude: 4.5, region: "pacific" },
     briefingPrompt: "Summarize notable earthquakes for the Pacific region.",
-    briefingSchedule: "0 8 * * 1",
+    briefingSchedule: "0 */8 * * *",
     active: true,
     createdAt: "2024-01-01T00:00:00.000Z",
     updatedAt: "2024-01-01T00:00:00.000Z",

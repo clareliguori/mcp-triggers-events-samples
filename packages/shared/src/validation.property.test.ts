@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import {
   BRIEFING_PROMPT_MAX_LENGTH,
   BRIEFING_PROMPT_MIN_LENGTH,
+  BRIEFING_SCHEDULE_CRONS,
   CRON_REGEX,
   MAX_MAGNITUDE,
   MIN_MAGNITUDE,
@@ -95,7 +96,7 @@ const validCustomerConfigInputArb = fc.record({
   displayName: validDisplayNameArb,
   subscriptionParams: validSubscriptionParamsArb,
   briefingPrompt: validBriefingPromptArb,
-  briefingSchedule: validCronArb,
+  briefingSchedule: fc.constantFrom(...BRIEFING_SCHEDULE_CRONS),
 });
 
 const validCustomerConfigArb = fc.record({
@@ -103,7 +104,7 @@ const validCustomerConfigArb = fc.record({
   displayName: validDisplayNameArb,
   subscriptionParams: validSubscriptionParamsArb,
   briefingPrompt: validBriefingPromptArb,
-  briefingSchedule: validCronArb,
+  briefingSchedule: fc.constantFrom(...BRIEFING_SCHEDULE_CRONS),
   active: fc.boolean(),
   createdAt: fc.date().map((d) => d.toISOString()),
   updatedAt: fc.date().map((d) => d.toISOString()),

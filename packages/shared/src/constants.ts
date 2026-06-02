@@ -65,6 +65,24 @@ export const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * Allowed briefing schedule options. Each entry maps a cron expression to a
+ * human-readable label. Customers choose from these fixed intervals rather
+ * than authoring arbitrary cron expressions (which are overpowered for the
+ * use case and error-prone). The scheduler server evaluates the cron;
+ * validation ensures only these values are accepted.
+ */
+export const BRIEFING_SCHEDULES = [
+  { cron: "0 */8 * * *", label: "Every 8 hours" },
+  { cron: "0 */12 * * *", label: "Every 12 hours" },
+  { cron: "0 9 * * *", label: "Every 24 hours" },
+] as const;
+
+/** The allowed cron values extracted for validation. */
+export const BRIEFING_SCHEDULE_CRONS = BRIEFING_SCHEDULES.map(
+  (s) => s.cron,
+) as unknown as [string, ...string[]];
+
+/**
  * Validates a 5-field cron expression with the form:
  *   `minute hour day-of-month month day-of-week`
  *

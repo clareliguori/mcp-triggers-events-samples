@@ -8,6 +8,8 @@
   import {
     REGIONS,
     REGION_LABELS,
+    BRIEFING_SCHEDULES,
+    scheduleLabel,
     emptyConfigForm,
     configToForm,
     validateConfigForm,
@@ -279,17 +281,22 @@
 
           <!-- Briefing schedule -->
           <div class="flex flex-col gap-2">
-            <Label for="briefingSchedule">Briefing schedule (cron)</Label>
-            <Input
-              id="briefingSchedule"
-              placeholder="0 9 * * *"
-              class="font-mono"
-              bind:value={form.briefingSchedule}
-              aria-invalid={errors.briefingSchedule ? "true" : undefined}
-            />
+            <Label for="briefingSchedule">Briefing schedule</Label>
+            <Select.Root type="single" bind:value={form.briefingSchedule}>
+              <Select.Trigger id="briefingSchedule" class="w-full">
+                {scheduleLabel(form.briefingSchedule)}
+              </Select.Trigger>
+              <Select.Content>
+                {#each BRIEFING_SCHEDULES as schedule (schedule.cron)}
+                  <Select.Item value={schedule.cron} label={schedule.label}>
+                    {schedule.label}
+                  </Select.Item>
+                {/each}
+              </Select.Content>
+            </Select.Root>
             <p class="text-muted-foreground text-xs">
-              A 5-field cron expression (minute hour day-of-month month
-              day-of-week). Example: <code>0 9 * * *</code> runs daily at 09:00.
+              How often the agent generates a briefing report from accumulated
+              earthquake data.
             </p>
             {#if errors.briefingSchedule}
               <p class="text-destructive text-sm">{errors.briefingSchedule}</p>

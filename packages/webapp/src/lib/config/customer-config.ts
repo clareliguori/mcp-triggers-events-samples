@@ -42,12 +42,23 @@ export const DISPLAY_NAME_MIN_LENGTH = 1;
 export const DISPLAY_NAME_MAX_LENGTH = 200;
 
 /**
- * 5-field cron expression validator (Requirement 16.5). Mirrors `CRON_REGEX`
- * in the shared package: `minute hour day-of-month month day-of-week`, each
- * field accepting `*`, single values, ranges, step values, and comma lists.
+ * Allowed briefing schedule options (mirrors @mcp-events/shared/constants).
+ * Customers choose from fixed intervals rather than authoring arbitrary cron.
  */
-const CRON_FIELD = String.raw`(\*|\d+|\d+-\d+|\*\/\d+|\d+\/\d+)(,(\*|\d+|\d+-\d+|\*\/\d+|\d+\/\d+))*`;
-export const CRON_REGEX = new RegExp(`^${CRON_FIELD}( ${CRON_FIELD}){4}$`);
+export const BRIEFING_SCHEDULES = [
+  { cron: "0 */8 * * *", label: "Every 8 hours" },
+  { cron: "0 */12 * * *", label: "Every 12 hours" },
+  { cron: "0 9 * * *", label: "Every 24 hours" },
+] as const;
+
+export const BRIEFING_SCHEDULE_CRONS = BRIEFING_SCHEDULES.map(
+  (s) => s.cron,
+) as unknown as [string, ...string[]];
+
+/** Human-friendly label for a schedule cron value. */
+export function scheduleLabel(cron: string): string {
+  return BRIEFING_SCHEDULES.find((s) => s.cron === cron)?.label ?? cron;
+}
 
 /** Human-friendly labels for the region select options. */
 export const REGION_LABELS: Record<Region, string> = {
@@ -197,9 +208,8 @@ export function validateConfigForm(
   }
 
   const briefingSchedule = values.briefingSchedule.trim();
-  if (!CRON_REGEX.test(briefingSchedule)) {
-    errors.briefingSchedule =
-      'Briefing schedule must be a valid 5-field cron expression (e.g. "0 9 * * *").';
+  if (!BRIEFING_SCHEDULE_CRONS.includes(briefingSchedule as (typeof BRIEFING_SCHEDULE_CRONS)[number])) {
+    errors.briefingSchedule = "Select a valid briefing schedule.";
   }
 
   if (Object.keys(errors).length > 0) {

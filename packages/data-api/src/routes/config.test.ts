@@ -44,7 +44,7 @@ function validInput(): CustomerConfigInput {
     displayName: "Acme Seismology",
     subscriptionParams: { minMagnitude: 4.5, region: "pacific" },
     briefingPrompt: "Summarize notable earthquakes for the Pacific region.",
-    briefingSchedule: "0 8 * * 1",
+    briefingSchedule: "0 */8 * * *",
   };
 }
 

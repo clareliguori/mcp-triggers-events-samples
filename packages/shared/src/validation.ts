@@ -12,6 +12,7 @@ import { z } from "zod";
 import {
   BRIEFING_PROMPT_MAX_LENGTH,
   BRIEFING_PROMPT_MIN_LENGTH,
+  BRIEFING_SCHEDULE_CRONS,
   CRON_REGEX,
   EVENT_NAME_BRIEFING_TRIGGER,
   EVENT_NAME_EARTHQUAKE_DETECTED,
@@ -118,7 +119,7 @@ export const customerConfigInputSchema = z.object({
     .string()
     .min(BRIEFING_PROMPT_MIN_LENGTH)
     .max(BRIEFING_PROMPT_MAX_LENGTH),
-  briefingSchedule: cronExpressionSchema,
+  briefingSchedule: z.enum(BRIEFING_SCHEDULE_CRONS),
 });
 
 /** Full CustomerConfig as stored in DynamoDB. */

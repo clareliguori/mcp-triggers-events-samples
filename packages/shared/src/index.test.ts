@@ -53,7 +53,7 @@ describe("@mcp-events/shared exports", () => {
       displayName: "Test Customer",
       subscriptionParams: { minMagnitude: 4, region: "pacific" },
       briefingPrompt: "Summarize recent seismic activity",
-      briefingSchedule: "0 */6 * * *",
+      briefingSchedule: "0 */8 * * *",
       active: true,
       createdAt: "2024-01-01T00:00:00Z",
       updatedAt: "2024-01-01T00:00:00Z",
@@ -228,7 +228,7 @@ describe("@mcp-events/shared exports", () => {
       displayName: "Test",
       subscriptionParams: { minMagnitude: 5, region: "pacific" },
       briefingPrompt: "Briefing me on earthquakes",
-      briefingSchedule: "0 0 * * *",
+      briefingSchedule: "0 9 * * *",
     });
     expect(result.success).toBe(true);
   });
@@ -238,7 +238,7 @@ describe("@mcp-events/shared exports", () => {
       displayName: "Test",
       subscriptionParams: { minMagnitude: 11 },
       briefingPrompt: "Brief me",
-      briefingSchedule: "0 0 * * *",
+      briefingSchedule: "0 9 * * *",
     });
     expect(result.success).toBe(false);
   });
@@ -248,7 +248,7 @@ describe("@mcp-events/shared exports", () => {
       displayName: "Test",
       subscriptionParams: { region: "antarctica" },
       briefingPrompt: "Brief me",
-      briefingSchedule: "0 0 * * *",
+      briefingSchedule: "0 9 * * *",
     });
     expect(result.success).toBe(false);
   });
@@ -259,7 +259,7 @@ describe("@mcp-events/shared exports", () => {
         displayName: "Test",
         subscriptionParams: {},
         briefingPrompt: "",
-        briefingSchedule: "0 0 * * *",
+        briefingSchedule: "0 9 * * *",
       }).success,
     ).toBe(false);
 
@@ -268,7 +268,7 @@ describe("@mcp-events/shared exports", () => {
         displayName: "Test",
         subscriptionParams: {},
         briefingPrompt: "x".repeat(BRIEFING_PROMPT_MAX_LENGTH + 1),
-        briefingSchedule: "0 0 * * *",
+        briefingSchedule: "0 9 * * *",
       }).success,
     ).toBe(false);
   });
@@ -280,7 +280,7 @@ describe("@mcp-events/shared exports", () => {
         displayName: "Test",
         subscriptionParams: {},
         briefingPrompt: "x",
-        briefingSchedule: "0 0 * * *",
+        briefingSchedule: "0 9 * * *",
         active: true,
         createdAt: "2024-01-01T00:00:00Z",
         updatedAt: "2024-01-01T00:00:00Z",
