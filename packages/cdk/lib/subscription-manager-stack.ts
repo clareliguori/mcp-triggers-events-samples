@@ -8,6 +8,7 @@ import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { Construct } from "constructs";
+import { addLambdaAlarms } from "./alarms.js";
 import { resolveDomainName, type SharedProps } from "./shared-props.js";
 
 export type SubscriptionManagerStackProps = cdk.StackProps & SharedProps;
@@ -160,5 +161,8 @@ export class SubscriptionManagerStack extends cdk.Stack {
         ],
       }),
     );
+
+    // --- Monitoring alarms ---------------------------------------------------
+    addLambdaAlarms(this, "subscription-manager", handlerFn);
   }
 }

@@ -10,6 +10,7 @@ import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53targets from "aws-cdk-lib/aws-route53-targets";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
+import { addApiGatewayAlarms, addLambdaAlarms } from "./alarms.js";
 import { resolveDomainName, type SharedProps } from "./shared-props.js";
 
 export type WebhookReceiverStackProps = cdk.StackProps & SharedProps;
@@ -260,5 +261,9 @@ export class WebhookReceiverStack extends cdk.Stack {
       description: "ARN of the Webhook Receiver dead-letter queue",
       exportName: "EarthquakeAgent-WebhookDeadLetterQueueArn",
     });
+
+    // --- Monitoring alarms ---------------------------------------------------
+    addLambdaAlarms(this, "webhook-receiver", handlerFn);
+    addApiGatewayAlarms(this, "webhook-api", api);
   }
 }
