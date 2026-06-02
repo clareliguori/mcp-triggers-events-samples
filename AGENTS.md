@@ -162,28 +162,25 @@ on each load, so no rebuild is needed):
 }
 ```
 
-#### Creating a test Cognito user
+#### Retrieving test user credentials
 
-Self sign-up is **disabled** (`AuthStack`), so create users out of band with the
-admin APIs. The password policy requires >= 12 chars with upper, lower, and a
-digit. Use `--message-action SUPPRESS` (no email) and set a **permanent**
-password so there is no force-change-password challenge:
+`AuthStack` deploys a persistent test user (`test-user@example.com`) whose
+password is auto-generated and stored in Secrets Manager. A Custom Resource
+syncs the password to Cognito at deploy time - no manual step is needed.
+
+Retrieve the credentials on demand:
 
 ```bash
-POOL_ID=$(aws cloudformation describe-stacks --stack-name AuthStack --no-cli-pager \
-  --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text)
+SECRET_NAME=$(aws cloudformation describe-stacks --stack-name AuthStack --no-cli-pager \
+  --query "Stacks[0].Outputs[?OutputKey=='TestUserSecretName'].OutputValue" --output text)
 
-aws cognito-idp admin-create-user --user-pool-id "$POOL_ID" --no-cli-pager \
-  --username test-user@example.com \
-  --user-attributes Name=email,Value=test-user@example.com Name=email_verified,Value=true \
-  --message-action SUPPRESS
-
-aws cognito-idp admin-set-user-password --user-pool-id "$POOL_ID" --no-cli-pager \
-  --username test-user@example.com --password 'TestUser12345!' --permanent
+aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" --no-cli-pager \
+  --query SecretString --output text | jq -r '.username, .password'
 ```
 
-The user's `sub` (returned by `admin-create-user`, or visible in the app as
-"Customer ID") is the `customerId` for that user's data.
+The secret JSON has the shape `{"username": "test-user@example.com", "password": "..."}`.
+The user's `sub` (visible in the app as "Customer ID") is the `customerId` for
+that user's data.
 
 #### Logging in with Playwright
 
@@ -197,7 +194,7 @@ playwright-cli snapshot --raw                  # find the "Sign in" button ref
 playwright-cli click <signin-ref>              # redirects to the Cognito Hosted UI
 playwright-cli snapshot --raw                  # find the email + password textbox refs
 playwright-cli fill <email-ref> test-user@example.com
-playwright-cli fill <password-ref> 'TestUser12345!'
+playwright-cli fill <password-ref> '<password from secret>'
 playwright-cli click <submit-ref>              # returns to the app, authenticated
 playwright-cli snapshot --raw                  # confirms "Signed in as ..." + nav links
 # navigate by CLICKING nav links (not goto/reload) to keep the in-memory session:
@@ -211,13 +208,13 @@ form reappears — fill it again.
 #### Cleanup
 
 When finished, stop the dev server (Option B), close the browser
-(`playwright-cli close`), and remove the test user and any data it created. The
-local `config.local.json` is gitignored, so it does not need reverting (delete
-it if you like):
+(`playwright-cli close`), and remove any data the test user created. The test
+user itself is persistent (managed by `AuthStack`) and should not be deleted.
+The local `config.local.json` is gitignored, so it does not need reverting
+(delete it if you like):
 
 ```bash
-aws cognito-idp admin-delete-user --user-pool-id "$POOL_ID" --username test-user@example.com --no-cli-pager
-# if you saved a config, also remove the row keyed by the user's sub:
+# if you saved a config, remove the row keyed by the user's sub:
 aws dynamodb delete-item --table-name <CustomerConfigTableName> --no-cli-pager \
   --key '{"customerId":{"S":"<sub>"}}'
 ```

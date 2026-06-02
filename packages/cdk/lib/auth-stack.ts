@@ -1,8 +1,11 @@
 import * as cdk from "aws-cdk-lib";
 import type * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as cr from "aws-cdk-lib/custom-resources";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53targets from "aws-cdk-lib/aws-route53-targets";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import { resolveDomainName, type SharedProps } from "./shared-props.js";
 
@@ -151,6 +154,96 @@ export class AuthStack extends cdk.Stack {
       description:
         "Cognito Hosted UI custom domain (auth.earthquake-agent.<parentDomain>)",
       exportName: "EarthquakeAgent-HostedUiDomain",
+    });
+
+    // --- Persistent test user (auto-synced password, no manual step) --------
+    // Creates a Cognito user + a Secrets Manager secret with the generated
+    // password, then uses an AwsCustomResource to call adminSetUserPassword at
+    // deploy time so the password is immediately usable without a manual script.
+
+    const testUsername = "test-user@example.com";
+
+    new cognito.CfnUserPoolUser(this, "TestUser", {
+      userPoolId: userPool.userPoolId,
+      username: testUsername,
+      userAttributes: [
+        { name: "email", value: testUsername },
+        { name: "email_verified", value: "true" },
+      ],
+      messageAction: "SUPPRESS",
+    });
+
+    const testUserSecret = new secretsmanager.Secret(this, "TestUserSecret", {
+      secretName: "earthquake-agent-test-user",
+      description:
+        "Credentials for the persistent test user in the earthquake-agent Cognito pool",
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ username: testUsername }),
+        generateStringKey: "password",
+        excludeCharacters: '"@/\\',
+        includeSpace: false,
+        passwordLength: 16,
+        requireEachIncludedType: true,
+      },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Sync the generated password to Cognito as a permanent password at deploy
+    // time. The physicalResourceId includes the secret version so a redeploy
+    // after secret rotation triggers a new sync.
+    const syncPassword = new cr.AwsCustomResource(
+      this,
+      "SyncTestUserPassword",
+      {
+        onCreate: {
+          service: "CognitoIdentityServiceProvider",
+          action: "adminSetUserPassword",
+          parameters: {
+            UserPoolId: userPool.userPoolId,
+            Username: testUsername,
+            Password: testUserSecret
+              .secretValueFromJson("password")
+              .unsafeUnwrap(),
+            Permanent: true,
+          },
+          physicalResourceId: cr.PhysicalResourceId.of(
+            "sync-test-user-password",
+          ),
+        },
+        onUpdate: {
+          service: "CognitoIdentityServiceProvider",
+          action: "adminSetUserPassword",
+          parameters: {
+            UserPoolId: userPool.userPoolId,
+            Username: testUsername,
+            Password: testUserSecret
+              .secretValueFromJson("password")
+              .unsafeUnwrap(),
+            Permanent: true,
+          },
+          physicalResourceId: cr.PhysicalResourceId.of(
+            "sync-test-user-password",
+          ),
+        },
+        policy: cr.AwsCustomResourcePolicy.fromStatements([
+          new iam.PolicyStatement({
+            actions: ["cognito-idp:AdminSetUserPassword"],
+            resources: [userPool.userPoolArn],
+          }),
+        ]),
+      },
+    );
+
+    // Ensure the user exists before we try to set its password.
+    syncPassword.node.addDependency(
+      this.node.findChild("TestUser") as cdk.CfnResource,
+    );
+
+    new cdk.CfnOutput(this, "TestUserSecretName", {
+      value: testUserSecret.secretName,
+      description:
+        "Secrets Manager secret name containing test user credentials (username + password)",
+      exportName: "EarthquakeAgent-TestUserSecretName",
     });
   }
 }
