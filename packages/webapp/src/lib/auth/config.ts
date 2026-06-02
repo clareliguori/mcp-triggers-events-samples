@@ -16,6 +16,12 @@
 // AuthStack: `https://app.<domain>/` and `http://localhost:5173/`). They can be
 // overridden in `config.json` if needed.
 //
+// LOCAL DEV OVERRIDE: for `npm run dev`, a gitignored
+// `packages/webapp/config.local.json` (if present) is served at `/config.json`
+// by a dev-only Vite middleware (see `vite.config.ts`), so the dev server can
+// point at a real deployed backend without editing the committed placeholder.
+// See `config.local.example.json` and AGENTS.md.
+//
 // The pure types + validation live in `config-schema.ts` (no `$app` import) so
 // they can be unit tested without the SvelteKit build pipeline.
 

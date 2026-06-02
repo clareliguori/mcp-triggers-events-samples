@@ -244,6 +244,12 @@ The Data API allows the `http://localhost:5173` webapp dev origin (CORS) in
 addition to the CloudFront origin, so the local dev server can call the deployed
 Data API from the browser without any extra configuration.
 
+To point the dev server at a deployed backend, create a gitignored
+`packages/webapp/config.local.json` (copy `config.local.example.json`) with the
+real Cognito/Data API values; the dev server serves it at `/config.json` in
+place of the committed placeholder. See AGENTS.md for the full Playwright
+testing workflow.
+
 ## Security notes
 
 - **Webhook auth**: every delivery is signed with a per-subscription Standard

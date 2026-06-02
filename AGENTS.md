@@ -113,28 +113,31 @@ Then create a test user (next subsection) and drive the live URL with Playwright
 
 #### Option B — against the local dev server
 
-`npm run dev` serves the SPA on `http://localhost:5173` and loads
-`static/config.json`. With the committed dev placeholders the pages render but
-auth-gated API calls fail. To make login + API calls work locally, point
-`static/config.json` at the deployed backend (see below). The Data API already
-allows the `http://localhost:5173` origin (CORS), and that URL is already a
-registered Cognito callback, so no stack redeploy is needed.
+`npm run dev` serves the SPA on `http://localhost:5173` and loads `/config.json`
+at runtime. With the committed dev placeholders (`static/config.json`) the pages
+render but auth-gated API calls fail. To make login + API calls work locally,
+create a **gitignored** `packages/webapp/config.local.json` with real deployed
+values (see below). The dev server serves it at `/config.json` in place of the
+committed placeholder, so you never edit (and never have to revert) a committed
+file, and real values can never be committed. The Data API already allows the
+`http://localhost:5173` origin (CORS), and that URL is already a registered
+Cognito callback, so no stack redeploy is needed.
 
 ```bash
 npm run dev --workspace @mcp-events/webapp   # vite dev server on :5173 (leave running)
 ```
 
-**IMPORTANT:** `static/config.json` is committed with dev placeholders. If you
-edit it for local testing, **revert it before committing** (`git checkout
-packages/webapp/static/config.json`) — never commit real backend values. The
-`clientId` is a public PKCE client id (not a secret), but still revert.
+This `config.local.json` override is dev-only (a Vite middleware in
+`vite.config.ts`, `apply: "serve"`); `vite build` and the deployed site are
+unaffected (`WebappStack` injects deploy-time values).
 
-#### Filling in `config.json` (Option B only)
+#### Filling in `config.local.json` (Option B only)
 
-The webapp loads `config.json` at runtime. Build the real values from stack
-outputs:
+Copy the committed example and fill in real values from stack outputs:
 
 ```bash
+cp packages/webapp/config.local.example.json packages/webapp/config.local.json
+
 # clientId + hosted UI domain (AuthStack)
 aws cloudformation describe-stacks --stack-name AuthStack --no-cli-pager \
   --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text
@@ -145,8 +148,8 @@ aws cloudformation describe-stacks --stack-name DataApiStack --no-cli-pager \
   --query "Stacks[0].Outputs[?OutputKey=='DataApiCustomDomainUrl'].OutputValue" --output text
 ```
 
-Write them into `packages/webapp/static/config.json` (the dev server serves it
-fresh on each load, so no rebuild is needed):
+`packages/webapp/config.local.json` (gitignored; the dev server serves it fresh
+on each load, so no rebuild is needed):
 
 ```json
 {
@@ -207,9 +210,10 @@ form reappears — fill it again.
 
 #### Cleanup
 
-When finished, stop the dev server (Option B), `git checkout
-packages/webapp/static/config.json` if you edited it, close the browser
-(`playwright-cli close`), and remove the test user and any data it created:
+When finished, stop the dev server (Option B), close the browser
+(`playwright-cli close`), and remove the test user and any data it created. The
+local `config.local.json` is gitignored, so it does not need reverting (delete
+it if you like):
 
 ```bash
 aws cognito-idp admin-delete-user --user-pool-id "$POOL_ID" --username test-user@example.com --no-cli-pager

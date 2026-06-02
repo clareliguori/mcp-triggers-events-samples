@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy this file to config.local.json (gitignored) and fill in real deployed values to point `npm run dev` at the deployed backend. The dev server serves it at /config.json in place of static/config.json; the committed placeholder is never touched. See AGENTS.md > Testing the webapp with Playwright.",
+  "cognito": {
+    "hostedUiDomain": "auth.earthquake-agent.<parentDomain>",
+    "clientId": "<UserPoolClientId from AuthStack EarthquakeAgent-UserPoolClientId>",
+    "scopes": ["openid", "email", "profile"]
+  },
+  "apiBaseUrl": "https://api.earthquake-agent.<parentDomain>"
+}

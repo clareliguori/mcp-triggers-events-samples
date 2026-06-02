@@ -144,6 +144,10 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
+# Webapp local dev runtime config override (real deployed backend values).
+# Served at /config.json by the dev server only; never committed.
+packages/webapp/config.local.json
+
 # AWS CDK
 **/cdk.out/
 # Account-specific lookup cache (Route53 zone, AMIs, etc.). Each deployer
