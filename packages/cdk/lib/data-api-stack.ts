@@ -273,13 +273,27 @@ export class DataApiStack extends cdk.Stack {
     // it on read (Requirement 17.5). This key is used only by this Lambda.
     subscriptionSecretKey.grantEncryptDecrypt(handlerFn);
 
-    // Read-only s3:GetObject on the AgentStack sessions bucket, scoped to the
-    // sessions/ prefix, for the read-only session messages endpoint
-    // (Requirements 9.8, 17.3). The agent still owns writes to this bucket.
+    // Read-only access to the AgentStack sessions bucket for the read-only
+    // session messages endpoint (Requirements 9.8, 17.3). The agent still owns
+    // writes to this bucket.
+    //
+    // s3:GetObject is scoped to the sessions/ prefix. s3:ListBucket is granted
+    // on the bucket itself (no s3:prefix condition): without it, a GetObject of
+    // a not-yet-created session snapshot returns 403 AccessDenied instead of 404
+    // NoSuchKey, which the handler cannot distinguish from a real auth failure
+    // and surfaces as a 500. The list-permission check S3 runs to decide 404 vs
+    // 403 carries no s3:prefix, so a prefix-conditioned grant would not satisfy
+    // it — hence the bucket-wide (still read-only) ListBucket.
     handlerFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["s3:GetObject"],
         resources: [`${sessionsBucketArn}/sessions/*`],
+      }),
+    );
+    handlerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:ListBucket"],
+        resources: [sessionsBucketArn],
       }),
     );
 
