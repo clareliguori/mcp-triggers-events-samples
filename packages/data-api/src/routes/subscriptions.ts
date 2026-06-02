@@ -43,7 +43,7 @@ import {
   decryptSubscriptionSecret,
   encryptSubscriptionSecret,
   customerIdSchema,
-  uuidV4Schema,
+
   webhookSubscriptionSchema,
   whsecSecretSchema,
 } from "@mcp-events/shared";
@@ -169,14 +169,15 @@ function formatZodError(error: z.ZodError): string {
 /**
  * Validate and return the `subscriptionId` path parameter.
  *
- * @throws HttpError 400 when it is missing or not a UUID v4.
+ * @throws HttpError 400 when it is missing or empty. Accepts both UUID v4
+ * (legacy) and the SDK's deterministic hash format (sub_xxxx).
  */
 function requireSubscriptionId(ctx: RouteContext): string {
-  const result = uuidV4Schema.safeParse(ctx.pathParameters.subscriptionId);
-  if (!result.success) {
-    throw badRequest("subscriptionId must be a valid UUID v4");
+  const raw = ctx.pathParameters.subscriptionId;
+  if (!raw || raw.trim().length === 0) {
+    throw badRequest("subscriptionId is required");
   }
-  return result.data;
+  return raw;
 }
 
 /**

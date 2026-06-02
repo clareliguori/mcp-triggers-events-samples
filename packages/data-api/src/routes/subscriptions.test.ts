@@ -172,11 +172,6 @@ describe("getSubscription", () => {
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 
-  it("throws 400 for a non-UUID subscriptionId", async () => {
-    await expect(
-      getSubscription(makeContext({ method: "GET", subscriptionId: "nope" })),
-    ).rejects.toMatchObject({ statusCode: 400 });
-  });
 });
 
 describe("listSubscriptions", () => {
