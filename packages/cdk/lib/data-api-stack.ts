@@ -97,21 +97,14 @@ export class DataApiStack extends cdk.Stack {
     const domainName = resolveDomainName(props);
     const apiDomainName = `api.${domainName}`;
     const appOrigin = `https://app.${domainName}`;
-    // CORS allowlist. Production locks to the CloudFront webapp origin only
-    // (Requirement 17.2). For local development the webapp dev server (Vite,
-    // http://localhost:5173) can be added to the allowlist so it can call a
-    // deployed Data API from the browser. This is OPT-IN and OFF by default:
-    // enable it only for dev deploys with `-c allowLocalhostCors=true` (or set
-    // `allowLocalhostCors: true` in cdk.context.json). The localhost origin is
-    // never included unless explicitly requested, so the default deploy keeps
-    // the CloudFront-only posture.
-    const allowLocalhostCors =
-      this.node.tryGetContext("allowLocalhostCors") === true ||
-      this.node.tryGetContext("allowLocalhostCors") === "true";
+    // CORS allowlist. The CloudFront webapp origin is always allowed
+    // (Requirement 17.2); the webapp dev server (Vite, http://localhost:5173)
+    // is also always allowed so the local dev server can call the deployed Data
+    // API from the browser during development. Both are explicit origins (no
+    // wildcard) and the handler reflects only the matching request origin, so
+    // credentialed CORS still works and no other origin is granted access.
     const localhostOrigin = "http://localhost:5173";
-    const corsOrigins = allowLocalhostCors
-      ? [appOrigin, localhostOrigin]
-      : [appOrigin];
+    const corsOrigins = [appOrigin, localhostOrigin];
     // The handler reads the allowlist from ALLOWED_ORIGIN as a comma-separated
     // list and reflects the matching request origin (credentialed CORS cannot
     // use a wildcard).
@@ -333,9 +326,9 @@ export class DataApiStack extends cdk.Stack {
         endpointType: apigateway.EndpointType.REGIONAL,
         securityPolicy: apigateway.SecurityPolicy.TLS_1_2,
       },
-      // CORS restricted to the allowlist (CloudFront webapp origin, plus the
-      // localhost dev origin only when opted in), with credentials enabled for
-      // the JWT bearer flow (Requirement 17.2). No wildcard origin.
+      // CORS restricted to the allowlist (CloudFront webapp origin and the
+      // localhost dev origin), with credentials enabled for the JWT bearer flow
+      // (Requirement 17.2). No wildcard origin.
       defaultCorsPreflightOptions: {
         allowOrigins: corsOrigins,
         allowCredentials: true,

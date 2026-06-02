@@ -228,7 +228,7 @@ This document defines the requirements for the MCP Events Serverless Agent — a
 #### Acceptance Criteria
 
 1. THE Webhook_Receiver SHALL validate Standard Webhooks HMAC-SHA256 signatures on all incoming webhook deliveries
-2. THE Data_API SHALL enforce CORS allowing only the CloudFront distribution origin with credentials mode enabled; WHERE a deployment opts in to local development (the `allowLocalhostCors` CDK context flag), THE Data_API MAY additionally allow the `http://localhost:5173` webapp dev origin, and THE Data_API SHALL reflect only an allowlisted request origin in `Access-Control-Allow-Origin` (never a wildcard while credentials mode is enabled)
+2. THE Data_API SHALL enforce CORS allowing the CloudFront distribution origin and the `http://localhost:5173` webapp dev origin with credentials mode enabled, and THE Data_API SHALL reflect only an allowlisted request origin in `Access-Control-Allow-Origin` (never a wildcard while credentials mode is enabled)
 3. THE CDK application SHALL configure each Lambda with a dedicated IAM role following least-privilege principles
 4. THE Webapp SHALL serve static assets from S3 via CloudFront with Origin Access Control (OAC) preventing direct S3 access
 5. THE system SHALL persist each subscription's client-supplied Standard Webhooks secret on its WebhookSubscription record in each of the three Subscriptions DynamoDB tables (Data_API, MCP_Server_1, and MCP_Server_2) as a client-side field-encrypted `secret` attribute, encrypted and decrypted by the Lambda co-located with that table using a dedicated customer-managed KMS key created in that table's own stack with automatic key rotation enabled, with no per-server SSM Parameter Store SecureString HMAC parameters

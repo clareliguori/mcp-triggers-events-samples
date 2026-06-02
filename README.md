@@ -53,36 +53,36 @@ Subscription Manager ──IAM──> MCP Server 1 + MCP Server 2 (events/subscr
 
 This is a TypeScript (ESM, NodeNext) monorepo managed with **npm workspaces**.
 
-| Package | Purpose |
-| --- | --- |
-| `packages/shared` | Data models, zod validation, constants, Standard Webhooks helpers, and KMS encrypt/decrypt helpers shared across packages. |
-| `packages/mcp-server-core` | Shared MCP server machinery reused by both servers: AWS client singletons, env lookups, subscription store, signed webhook delivery, JSON-RPC MCP transport, and dual-trigger Lambda dispatch. |
-| `packages/usgs-server` | MCP Server 1 — USGS feed poller, per-subscription filter, and MCP/webhook Lambda handler. |
-| `packages/scheduler-server` | MCP Server 2 — cron schedule evaluation, manual trigger, and MCP/webhook Lambda handler. |
-| `packages/webhook-receiver` | Validates Standard Webhooks signatures and enqueues events to SQS with the subscription id as a message attribute. |
-| `packages/agent` | The serverless Strands agent: SQS handler, customer routing, distributed lock, earthquake accumulation, briefing generation, and corrupted-session recovery. |
-| `packages/subscription-manager` | Creates subscriptions for new customers (DynamoDB Stream) and refreshes expiring ones (EventBridge). |
-| `packages/data-api` | Shared persistence API (API Gateway + Lambda) for customer config, subscriptions, reports, and a read-only session-messages view. Dual auth: Cognito (webapp) + IAM (backend). |
-| `packages/webapp` | SvelteKit SPA (static adapter) styled with shadcn-svelte + Tailwind, authenticated via Cognito Hosted UI (authorization code + PKCE). |
-| `packages/cdk` | Multi-stack AWS CDK app that deploys the whole system. |
-| `packages/integration-tests` | Black-box end-to-end tests against a deployed stack (skip gracefully when nothing is deployed). |
+| Package                         | Purpose                                                                                                                                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared`               | Data models, zod validation, constants, Standard Webhooks helpers, and KMS encrypt/decrypt helpers shared across packages.                                                                     |
+| `packages/mcp-server-core`      | Shared MCP server machinery reused by both servers: AWS client singletons, env lookups, subscription store, signed webhook delivery, JSON-RPC MCP transport, and dual-trigger Lambda dispatch. |
+| `packages/usgs-server`          | MCP Server 1 — USGS feed poller, per-subscription filter, and MCP/webhook Lambda handler.                                                                                                      |
+| `packages/scheduler-server`     | MCP Server 2 — cron schedule evaluation, manual trigger, and MCP/webhook Lambda handler.                                                                                                       |
+| `packages/webhook-receiver`     | Validates Standard Webhooks signatures and enqueues events to SQS with the subscription id as a message attribute.                                                                             |
+| `packages/agent`                | The serverless Strands agent: SQS handler, customer routing, distributed lock, earthquake accumulation, briefing generation, and corrupted-session recovery.                                   |
+| `packages/subscription-manager` | Creates subscriptions for new customers (DynamoDB Stream) and refreshes expiring ones (EventBridge).                                                                                           |
+| `packages/data-api`             | Shared persistence API (API Gateway + Lambda) for customer config, subscriptions, reports, and a read-only session-messages view. Dual auth: Cognito (webapp) + IAM (backend).                 |
+| `packages/webapp`               | SvelteKit SPA (static adapter) styled with shadcn-svelte + Tailwind, authenticated via Cognito Hosted UI (authorization code + PKCE).                                                          |
+| `packages/cdk`                  | Multi-stack AWS CDK app that deploys the whole system.                                                                                                                                         |
+| `packages/integration-tests`    | Black-box end-to-end tests against a deployed stack (skip gracefully when nothing is deployed).                                                                                                |
 
 ### CDK stacks (`packages/cdk/lib`)
 
 `bin/app.ts` instantiates ten stacks:
 
-| Stack | Region | Responsibility |
-| --- | --- | --- |
-| `DnsRegionalStack` | target | Subdomain hosted zone, NS delegation, regional wildcard ACM cert for the API Gateway custom domains. |
-| `DnsUsEast1Stack` | us-east-1 | Wildcard ACM cert for CloudFront and Cognito (which require us-east-1 certs). |
-| `AuthStack` | target | Cognito User Pool + Hosted UI domain. |
-| `DataApiStack` | target | Data API (API GW + Lambda), CustomerConfig + Subscriptions DynamoDB tables, reports S3 bucket, per-table KMS key. |
-| `UsgsServerStack` | target | MCP Server 1 (IAM-auth API GW), cursor + subscriptions tables, KMS key, EventBridge poll (5 min). |
-| `SchedulerServerStack` | target | MCP Server 2 (IAM-auth API GW), subscriptions table, KMS key, EventBridge check (1 min). |
-| `WebhookReceiverStack` | target | Webhook API GW, SQS event queue + DLQ, DLQ-depth alarm. |
-| `AgentStack` | target | Agent Lambda (SQS trigger, batch size 1), sessions S3 bucket, DynamoDB locks table. |
-| `SubscriptionManagerStack` | target | Subscription Manager Lambda (DynamoDB Stream + EventBridge triggers). |
-| `WebappStack` | target | SPA S3 bucket + CloudFront (OAC) at `app.<subdomain>.<parentDomain>`. |
+| Stack                      | Region    | Responsibility                                                                                                    |
+| -------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------- |
+| `DnsRegionalStack`         | target    | Subdomain hosted zone, NS delegation, regional wildcard ACM cert for the API Gateway custom domains.              |
+| `DnsUsEast1Stack`          | us-east-1 | Wildcard ACM cert for CloudFront and Cognito (which require us-east-1 certs).                                     |
+| `AuthStack`                | target    | Cognito User Pool + Hosted UI domain.                                                                             |
+| `DataApiStack`             | target    | Data API (API GW + Lambda), CustomerConfig + Subscriptions DynamoDB tables, reports S3 bucket, per-table KMS key. |
+| `UsgsServerStack`          | target    | MCP Server 1 (IAM-auth API GW), cursor + subscriptions tables, KMS key, EventBridge poll (5 min).                 |
+| `SchedulerServerStack`     | target    | MCP Server 2 (IAM-auth API GW), subscriptions table, KMS key, EventBridge check (1 min).                          |
+| `WebhookReceiverStack`     | target    | Webhook API GW, SQS event queue + DLQ, DLQ-depth alarm.                                                           |
+| `AgentStack`               | target    | Agent Lambda (SQS trigger, batch size 1), sessions S3 bucket, DynamoDB locks table.                               |
+| `SubscriptionManagerStack` | target    | Subscription Manager Lambda (DynamoDB Stream + EventBridge triggers).                                             |
+| `WebappStack`              | target    | SPA S3 bucket + CloudFront (OAC) at `app.<subdomain>.<parentDomain>`.                                             |
 
 ## Prerequisites
 
@@ -240,8 +240,9 @@ For local webapp development:
 npm run dev --workspace @mcp-events/webapp   # vite dev server on :5173
 ```
 
-The Data API can opt into a localhost CORS origin via the `allowLocalhostCors`
-CDK context flag for local webapp development.
+The Data API allows the `http://localhost:5173` webapp dev origin (CORS) in
+addition to the CloudFront origin, so the local dev server can call the deployed
+Data API from the browser without any extra configuration.
 
 ## Security notes
 

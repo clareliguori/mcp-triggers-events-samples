@@ -115,16 +115,10 @@ Then create a test user (next subsection) and drive the live URL with Playwright
 
 `npm run dev` serves the SPA on `http://localhost:5173` and loads
 `static/config.json`. With the committed dev placeholders the pages render but
-auth-gated API calls fail. To make login + API calls work locally you must do
-**both**:
-
-1. Point `static/config.json` at the deployed backend (see below).
-2. Deploy the Data API with localhost CORS allowed (off by default):
-   ```bash
-   cd packages/cdk && npx cdk deploy DataApiStack -c allowLocalhostCors=true --require-approval never
-   ```
-   `http://localhost:5173` is already a registered Cognito callback URL, so no
-   AuthStack change is needed.
+auth-gated API calls fail. To make login + API calls work locally, point
+`static/config.json` at the deployed backend (see below). The Data API already
+allows the `http://localhost:5173` origin (CORS), and that URL is already a
+registered Cognito callback, so no stack redeploy is needed.
 
 ```bash
 npm run dev --workspace @mcp-events/webapp   # vite dev server on :5173 (leave running)
