@@ -11,7 +11,7 @@
  * `/customers/:customerId/reports`) so the router resolves the intended route.
  */
 
-import { deleteConfig, getConfig, putConfig } from "./config.js";
+import { deleteConfig, getConfig, listCustomers, putConfig } from "./config.js";
 import { getReport, listReports, createReport } from "./reports.js";
 import { getSessionMessages } from "./session.js";
 import {
@@ -56,6 +56,9 @@ export const routes: RouteDefinition[] = [
   // Gateway explicit resources win over the {proxy+} fallback, so a signed
   // backend read of that path is intercepted by the Cognito method and 401s.
   // This explicit backend path is declared with IAM auth in the CDK stack and
+  // Backend (IAM) list-all-customers route for the Subscription Manager refresh.
+  route("GET", "/backend/customers", listCustomers),
+
   // reuses the same getConfig handler. It is customerScoped (contains
   // :customerId), so enforceCustomerAccess applies — IAM callers may read any
   // customer (Requirement 9.3).

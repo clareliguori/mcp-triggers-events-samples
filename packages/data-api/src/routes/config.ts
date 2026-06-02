@@ -31,6 +31,7 @@ import {
 import {
   DynamoDBDocumentClient,
   GetCommand,
+  ScanCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import type { CustomerConfig } from "@mcp-events/shared";
@@ -214,4 +215,21 @@ export async function deleteConfig(ctx: RouteContext): Promise<ApiResult> {
   }
 
   return { statusCode: 200, body: { deactivated: true } };
+}
+
+/**
+ * GET /backend/customers - list all customer configs (backend/IAM only).
+ *
+ * Used by the Subscription Manager's refresh path to enumerate active
+ * customers. Returns the full list (scan); acceptable for a demo with a small
+ * number of customers.
+ */
+export async function listCustomers(
+  _ctx: RouteContext,
+): Promise<ApiResult> {
+  const result = await getDocumentClient().send(
+    new ScanCommand({ TableName: tableName() }),
+  );
+  const items = (result.Items ?? []) as CustomerConfig[];
+  return { statusCode: 200, body: { customers: items } };
 }
