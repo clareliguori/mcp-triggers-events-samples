@@ -348,7 +348,7 @@ describe("Data API handler — response shape", () => {
       expect(res.headers?.["Access-Control-Allow-Origin"]).toBe(
         "http://localhost:5173",
       );
-      expect(res.headers?.["Vary"]).toBe("Origin");
+      expect(res.headers?.Vary).toBe("Origin");
     } finally {
       process.env.ALLOWED_ORIGIN = "https://app.example.com";
     }

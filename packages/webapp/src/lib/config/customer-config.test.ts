@@ -189,12 +189,19 @@ describe("validateConfigForm — properties", () => {
   it("accepts in-range magnitudes and rejects out-of-range ones", () => {
     fc.assert(
       fc.property(
-        fc.double({
-          min: -100,
-          max: 110,
-          noNaN: true,
-          noDefaultInfinity: true,
-        }),
+        fc
+          .double({
+            min: -100,
+            max: 110,
+            noNaN: true,
+            noDefaultInfinity: true,
+          })
+          // Canonicalize IEEE-754 negative zero to positive zero. The form
+          // round-trips magnitudes through String()->Number(), which maps -0
+          // to 0; comparing the echoed +0 against a generated -0 with toBe()
+          // (Object.is semantics) would spuriously fail even though -0 and 0
+          // are the same in-range magnitude.
+          .map((m) => (Object.is(m, -0) ? 0 : m)),
         (magnitude) => {
           const result = validateConfigForm(
             validForm({ minMagnitude: String(magnitude) }),

@@ -409,7 +409,7 @@ This implementation plan breaks the multi-stack CDK application into incremental
     - _Requirements: 4.1, 4.4, 4.5, 5.1, 5.2, 8.1, 8.2, 15.2_
     - _Validation: `npx vitest run packages/integration-tests` passes all tests against deployed stack_
 
-- [ ] 14. Final checkpoint — Ensure all tests pass
+- [x] 14. Final checkpoint — Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - _Validation: All preceding tasks' validations pass; `npx tsc --noEmit` compiles entire monorepo; `npx vitest run` passes all tests_
 
