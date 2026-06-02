@@ -22,20 +22,20 @@ Verify against the code before relying on the spec.
 TypeScript ESM (NodeNext) monorepo, npm workspaces, Node >= 20. Each package has
 its own `tsconfig.json` (composite project references) and `src/`.
 
-| Path | What lives here |
-| --- | --- |
-| `packages/shared/src` | `models.ts` (data models), `validation.ts` (zod schemas), `constants.ts`, `crypto.ts` (KMS encrypt/decrypt of the webhook secret), `webhooks.ts` (Standard Webhooks), `secret.ts` (`whsec_` generation/format). Barrel: `index.ts`. |
-| `packages/mcp-server-core/src` | Shared MCP server machinery: `clients.ts` (AWS SDK singletons + test seams), `env.ts`, `subscription-store.ts`, `webhook-delivery.ts` (signed POST + retry), `mcp-transport.ts` (JSON-RPC `events/*`), `dispatch.ts` (dual-trigger Lambda dispatch). |
-| `packages/usgs-server/src` | MCP Server 1: `poller.ts` (USGS fetch + cursor dedup), `filter.ts` (per-subscription filtering), `handler.ts`. |
-| `packages/scheduler-server/src` | MCP Server 2: `scheduler.ts` (cron eval), `handler.ts` (+ manual trigger). |
-| `packages/webhook-receiver/src` | `signature.ts` (HMAC verify + replay window), `handler.ts` (verify → SQS). |
-| `packages/agent/src` | The Strands agent: `router.ts` (SQS → subscription → customer), `config.ts` (load `CustomerConfig` from Data API), `lock.ts` (DynamoDB distributed lock), `accumulate.ts` (earthquake → conversation), `briefing.ts` (`save_report` tool), `recovery.ts` (corrupt-session archive), `sigv4.ts` (signed Data API calls), `handler.ts`. |
-| `packages/subscription-manager/src` | `register.ts` (DynamoDB Stream → subscribe on both servers), `refresh.ts` (EventBridge → refresh/rotate), `secret.ts`, `handler.ts` (dual trigger). |
-| `packages/data-api/src` | `handler.ts` + `router.ts` + `auth.ts` (dual auth) + `routes/{config,subscriptions,reports,trigger,session}.ts`. |
-| `packages/webapp/src` | SvelteKit SPA. `lib/auth` (Cognito PKCE), `lib/api/client.ts`, `lib/{config,reports,conversation}`, `lib/components/ui` (shadcn-svelte), `routes/{config,reports,conversation}`. |
-| `packages/cdk/bin/app.ts` | Instantiates the ten stacks and wires their dependencies. |
-| `packages/cdk/lib` | One file per stack + `mcp-server-construct.ts` (shared by the two MCP server stacks), `shared-props.ts` (domain config), `dns-regional-stack.ts`, `dns-us-east-1-stack.ts`. |
-| `packages/integration-tests/src` | Black-box e2e against a deployed stack (`harness.ts`, `config.ts`, `e2e.test.ts`). See its `README.md`. |
+| Path                                | What lives here                                                                                                                                                                                                                                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared/src`               | `models.ts` (data models), `validation.ts` (zod schemas), `constants.ts`, `crypto.ts` (KMS encrypt/decrypt of the webhook secret), `webhooks.ts` (Standard Webhooks), `secret.ts` (`whsec_` generation/format). Barrel: `index.ts`.                                                                                                   |
+| `packages/mcp-server-core/src`      | Shared MCP server machinery: `clients.ts` (AWS SDK singletons + test seams), `env.ts`, `subscription-store.ts`, `webhook-delivery.ts` (signed POST + retry), `mcp-transport.ts` (JSON-RPC `events/*`), `dispatch.ts` (dual-trigger Lambda dispatch).                                                                                  |
+| `packages/usgs-server/src`          | MCP Server 1: `poller.ts` (USGS fetch + cursor dedup), `filter.ts` (per-subscription filtering), `handler.ts`.                                                                                                                                                                                                                        |
+| `packages/scheduler-server/src`     | MCP Server 2: `scheduler.ts` (cron eval), `handler.ts` (+ manual trigger).                                                                                                                                                                                                                                                            |
+| `packages/webhook-receiver/src`     | `signature.ts` (HMAC verify + replay window), `handler.ts` (verify → SQS).                                                                                                                                                                                                                                                            |
+| `packages/agent/src`                | The Strands agent: `router.ts` (SQS → subscription → customer), `config.ts` (load `CustomerConfig` from Data API), `lock.ts` (DynamoDB distributed lock), `accumulate.ts` (earthquake → conversation), `briefing.ts` (`save_report` tool), `recovery.ts` (corrupt-session archive), `sigv4.ts` (signed Data API calls), `handler.ts`. |
+| `packages/subscription-manager/src` | `register.ts` (DynamoDB Stream → subscribe on both servers), `refresh.ts` (EventBridge → refresh/rotate), `secret.ts`, `handler.ts` (dual trigger).                                                                                                                                                                                   |
+| `packages/data-api/src`             | `handler.ts` + `router.ts` + `auth.ts` (dual auth) + `routes/{config,subscriptions,reports,trigger,session}.ts`.                                                                                                                                                                                                                      |
+| `packages/webapp/src`               | SvelteKit SPA. `lib/auth` (Cognito PKCE), `lib/api/client.ts`, `lib/{config,reports,conversation}`, `lib/components/ui` (shadcn-svelte), `routes/{config,reports,conversation}`.                                                                                                                                                      |
+| `packages/cdk/bin/app.ts`           | Instantiates the ten stacks and wires their dependencies.                                                                                                                                                                                                                                                                             |
+| `packages/cdk/lib`                  | One file per stack + `mcp-server-construct.ts` (shared by the two MCP server stacks), `shared-props.ts` (domain config), `dns-regional-stack.ts`, `dns-us-east-1-stack.ts`.                                                                                                                                                           |
+| `packages/integration-tests/src`    | Black-box e2e against a deployed stack (`harness.ts`, `config.ts`, `e2e.test.ts`). See its `README.md`.                                                                                                                                                                                                                               |
 
 ## Standard development workflow
 
@@ -71,6 +71,170 @@ references and root ESLint. Validate it separately:
 npm run check --workspace @mcp-events/webapp   # svelte-check (type check)
 npm run build --workspace @mcp-events/webapp   # vite build (static SPA)
 cd packages/webapp && npx vitest run           # webapp unit tests (own vitest.config.ts, no `test` script)
+```
+
+### Testing the webapp with Playwright
+
+Load the `playwright-cli` skill (`.kiro/skills/playwright-cli/SKILL.md`) before
+driving a browser. There are two ways to exercise the webapp; pick based on what
+you need.
+
+`playwright-cli` general tips:
+
+- Prefer `playwright-cli snapshot --raw` (accessibility tree) over screenshots to
+  read state; use `screenshot --filename=foo.png` only when an image is needed.
+- Use `playwright-cli console --raw` and `playwright-cli requests` /
+  `request <n>` to diagnose failed API calls (status codes, the `Authorization`
+  header, CORS errors).
+- **In-memory tokens (Requirement 10.6):** JWTs live only in memory. A full-page
+  navigation (`goto`) or `reload` drops the session and returns you to the
+  signed-out home page. After signing in, navigate **by clicking links**
+  (`/config`, `/reports`, `/conversation`), not by `goto`/`reload`, or you will
+  have to sign in again.
+- The webapp sends the Cognito **id token** (not the access token) as the
+  `Authorization: Bearer` credential, because the API Gateway Cognito authorizer
+  validates id tokens. An access token returns 401, which the browser surfaces
+  as a CORS error.
+
+#### Option A — against the deployed site (simplest end-to-end)
+
+The deployed CloudFront site already serves the correct `config.json` (injected
+at deploy time by `WebappStack`) and the Data API already allows the CloudFront
+origin, so **no config edits or CORS flag are needed**. This is the most
+faithful end-to-end test.
+
+```bash
+# Resolve the deployed app URL (or use https://app.earthquake-agent.<parentDomain>)
+aws cloudformation describe-stacks --stack-name WebappStack --no-cli-pager \
+  --query "Stacks[0].Outputs[?OutputKey=='WebappCustomDomainUrl'].OutputValue" --output text
+```
+
+Then create a test user (next subsection) and drive the live URL with Playwright.
+
+#### Option B — against the local dev server
+
+`npm run dev` serves the SPA on `http://localhost:5173` and loads
+`static/config.json`. With the committed dev placeholders the pages render but
+auth-gated API calls fail. To make login + API calls work locally you must do
+**both**:
+
+1. Point `static/config.json` at the deployed backend (see below).
+2. Deploy the Data API with localhost CORS allowed (off by default):
+   ```bash
+   cd packages/cdk && npx cdk deploy DataApiStack -c allowLocalhostCors=true --require-approval never
+   ```
+   `http://localhost:5173` is already a registered Cognito callback URL, so no
+   AuthStack change is needed.
+
+```bash
+npm run dev --workspace @mcp-events/webapp   # vite dev server on :5173 (leave running)
+```
+
+**IMPORTANT:** `static/config.json` is committed with dev placeholders. If you
+edit it for local testing, **revert it before committing** (`git checkout
+packages/webapp/static/config.json`) — never commit real backend values. The
+`clientId` is a public PKCE client id (not a secret), but still revert.
+
+#### Filling in `config.json` (Option B only)
+
+The webapp loads `config.json` at runtime. Build the real values from stack
+outputs:
+
+```bash
+# clientId + hosted UI domain (AuthStack)
+aws cloudformation describe-stacks --stack-name AuthStack --no-cli-pager \
+  --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text
+aws cloudformation describe-stacks --stack-name AuthStack --no-cli-pager \
+  --query "Stacks[0].Outputs[?OutputKey=='HostedUiDomain'].OutputValue" --output text
+# API base URL (DataApiStack)
+aws cloudformation describe-stacks --stack-name DataApiStack --no-cli-pager \
+  --query "Stacks[0].Outputs[?OutputKey=='DataApiCustomDomainUrl'].OutputValue" --output text
+```
+
+Write them into `packages/webapp/static/config.json` (the dev server serves it
+fresh on each load, so no rebuild is needed):
+
+```json
+{
+  "cognito": {
+    "hostedUiDomain": "auth.earthquake-agent.<parentDomain>",
+    "clientId": "<UserPoolClientId>",
+    "scopes": ["openid", "email", "profile"]
+  },
+  "apiBaseUrl": "https://api.earthquake-agent.<parentDomain>"
+}
+```
+
+#### Creating a test Cognito user
+
+Self sign-up is **disabled** (`AuthStack`), so create users out of band with the
+admin APIs. The password policy requires >= 12 chars with upper, lower, and a
+digit. Use `--message-action SUPPRESS` (no email) and set a **permanent**
+password so there is no force-change-password challenge:
+
+```bash
+POOL_ID=$(aws cloudformation describe-stacks --stack-name AuthStack --no-cli-pager \
+  --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text)
+
+aws cognito-idp admin-create-user --user-pool-id "$POOL_ID" --no-cli-pager \
+  --username test-user@example.com \
+  --user-attributes Name=email,Value=test-user@example.com Name=email_verified,Value=true \
+  --message-action SUPPRESS
+
+aws cognito-idp admin-set-user-password --user-pool-id "$POOL_ID" --no-cli-pager \
+  --username test-user@example.com --password 'TestUser12345!' --permanent
+```
+
+The user's `sub` (returned by `admin-create-user`, or visible in the app as
+"Customer ID") is the `customerId` for that user's data.
+
+#### Logging in with Playwright
+
+Click "Sign in" to redirect to the Cognito Hosted UI, fill the form, and submit.
+The flow returns to the app authenticated (the redirect carries the auth code;
+the SPA completes the PKCE exchange and stores tokens in memory).
+
+```bash
+playwright-cli open <APP_URL>/                 # deployed URL (Option A) or http://localhost:5173/
+playwright-cli snapshot --raw                  # find the "Sign in" button ref
+playwright-cli click <signin-ref>              # redirects to the Cognito Hosted UI
+playwright-cli snapshot --raw                  # find the email + password textbox refs
+playwright-cli fill <email-ref> test-user@example.com
+playwright-cli fill <password-ref> 'TestUser12345!'
+playwright-cli click <submit-ref>              # returns to the app, authenticated
+playwright-cli snapshot --raw                  # confirms "Signed in as ..." + nav links
+# navigate by CLICKING nav links (not goto/reload) to keep the in-memory session:
+playwright-cli click <configure-monitoring-ref>
+```
+
+If an existing Cognito browser session is still valid, clicking "Sign in" can
+silently redirect back without showing the form. If the session has expired, the
+form reappears — fill it again.
+
+#### Cleanup
+
+When finished, stop the dev server (Option B), `git checkout
+packages/webapp/static/config.json` if you edited it, close the browser
+(`playwright-cli close`), and remove the test user and any data it created:
+
+```bash
+aws cognito-idp admin-delete-user --user-pool-id "$POOL_ID" --username test-user@example.com --no-cli-pager
+# if you saved a config, also remove the row keyed by the user's sub:
+aws dynamodb delete-item --table-name <CustomerConfigTableName> --no-cli-pager \
+  --key '{"customerId":{"S":"<sub>"}}'
+```
+
+#### Quick render-only preview (no backend)
+
+To just inspect how pages render (no login), run the dev server with the
+committed placeholders and snapshot each route — auth-gated calls fail but the
+layouts render:
+
+```bash
+npm run dev --workspace @mcp-events/webapp     # :5173
+playwright-cli open http://localhost:5173/     # also /config, /reports, /conversation
+playwright-cli snapshot --raw
+playwright-cli close
 ```
 
 CDK changes:
