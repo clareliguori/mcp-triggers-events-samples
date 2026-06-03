@@ -118,6 +118,11 @@ export async function runScheduleCheck(
   const nowMs = now.getTime();
   const active = subscriptions.filter((s) => s.expiresAt > nowMs);
 
+  console.log("Schedule check", {
+    totalSubscriptions: subscriptions.length,
+    activeSubscriptions: active.length,
+  });
+
   let due = 0;
   let delivered = 0;
   let failed = 0;
@@ -157,9 +162,15 @@ export async function runScheduleCheck(
     );
     if (ok) {
       delivered += 1;
+      console.log("Delivered briefing trigger", { customerId, subscriptionId: sub.id });
     } else {
       failed += 1;
+      console.error("Failed to deliver briefing trigger", { customerId, subscriptionId: sub.id });
     }
+  }
+
+  if (due > 0) {
+    console.log("Schedule check complete", { due, delivered, failed });
   }
 
   return { activeSubscriptions: active.length, due, delivered, failed };

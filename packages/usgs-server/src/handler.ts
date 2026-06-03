@@ -132,6 +132,12 @@ export async function runPollCycle(
   const nowMs = now.getTime();
   const active = subscriptions.filter((s) => s.expiresAt > nowMs);
 
+  console.log("Poll cycle", {
+    newEarthquakes: detection.newEarthquakes.length,
+    totalSubscriptions: subscriptions.length,
+    activeSubscriptions: active.length,
+  });
+
   let deliveries = 0;
   let delivered = 0;
   let failed = 0;
@@ -148,10 +154,16 @@ export async function runPollCycle(
       );
       if (ok) {
         delivered += 1;
+        console.log("Delivered earthquake", { earthquakeId: earthquake.earthquakeId, subscriptionId: sub.id });
       } else {
         failed += 1;
+        console.error("Failed to deliver earthquake", { earthquakeId: earthquake.earthquakeId, subscriptionId: sub.id });
       }
     }
+  }
+
+  if (detection.newEarthquakes.length > 0) {
+    console.log("Poll cycle complete", { deliveries, delivered, failed });
   }
 
   await commitCursor({
