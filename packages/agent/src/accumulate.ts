@@ -105,15 +105,15 @@ export const PROCESSED_EVENT_IDS_LIMIT = 200;
 /**
  * Maximum number of messages retained in the conversation history between
  * briefings. Each earthquake event produces two messages (user + assistant), so
- * a window of 200 retains roughly the last 100 earthquakes - at least one full
- * day's worth even for broadly-filtered customers (the USGS feed reports 50-80
- * M2.5+ quakes/day globally). The briefing path still sees the full persisted
- * history (via NullConversationManager) before clearing; this window only bounds
- * what is sent to the model during earthquake analysis and what is persisted to
- * S3 after each event, preventing context window overflow for customers with
- * infrequent briefing schedules.
+ * a window of 500 retains roughly the last 250 earthquakes. With the M1.0+ feed
+ * reporting 100-200 quakes/day, this covers 1-2 full days of history - enough
+ * for the briefing LLM to synthesize a meaningful report. The briefing path
+ * still sees the full persisted history (via NullConversationManager) before
+ * clearing; this window only bounds what is sent to the model during earthquake
+ * analysis and what is persisted to S3 after each event, preventing context
+ * window overflow for customers with infrequent briefing schedules.
  */
-export const CONVERSATION_WINDOW_SIZE = 200;
+export const CONVERSATION_WINDOW_SIZE = 500;
 
 /**
  * Default Bedrock model id used when `BEDROCK_MODEL_ID` is not set in the
