@@ -232,8 +232,7 @@ export async function triggerBriefingForCustomer(
 // ---------------------------------------------------------------------------
 
 function isTriggerBriefingRequest(event: APIGatewayProxyEvent): boolean {
-  const route = event.resource || event.path || "";
-  return route.includes("/trigger-briefing/");
+  return (event.path || "").includes("/trigger-briefing/");
 }
 
 function triggerCustomerId(event: APIGatewayProxyEvent): string | undefined {

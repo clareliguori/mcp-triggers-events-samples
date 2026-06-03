@@ -189,10 +189,12 @@ export async function triggerBriefing(ctx: RouteContext): Promise<ApiResult> {
   });
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw new HttpError(
-      502,
-      `MCP Server 2 manual trigger returned ${response.statusCode}`,
-    );
+    console.error("Manual trigger upstream failure", {
+      customerId,
+      upstreamStatus: response.statusCode,
+      upstreamBody: response.body,
+    });
+    throw new HttpError(502, "Briefing trigger failed - please try again");
   }
 
   const parsed = tryParseJson(response.body);
