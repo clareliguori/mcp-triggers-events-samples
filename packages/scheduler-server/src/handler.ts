@@ -14,7 +14,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { BriefingTriggerData } from "@mcp-events/shared";
-import { EVENT_NAME_BRIEFING_TRIGGER, uuidV4Schema } from "@mcp-events/shared";
+import { EVENT_NAME_BRIEFING_TRIGGER, customerIdSchema } from "@mcp-events/shared";
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import {
@@ -261,12 +261,12 @@ async function handleManualTrigger(
     };
   }
 
-  const parsed = uuidV4Schema.safeParse(triggerCustomerId(event));
+  const parsed = customerIdSchema.safeParse(triggerCustomerId(event));
   if (!parsed.success) {
     return {
       statusCode: 400,
       headers: JSON_HEADERS,
-      body: JSON.stringify({ error: "customerId must be a valid UUID v4" }),
+      body: JSON.stringify({ error: "customerId must be a valid UUID" }),
     };
   }
 
