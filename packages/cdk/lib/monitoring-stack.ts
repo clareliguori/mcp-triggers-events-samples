@@ -36,6 +36,13 @@ const CHILD_ALARM_NAMES = [
   "earthquake-agent-schedulermcp-5xx",
   // WebhookReceiverStack DLQ alarm (pre-existing)
   "earthquake-agent-webhook-dlq-depth",
+  // Log-based error alarms (application-level errors)
+  "earthquake-agent-agent-log-errors",
+  "earthquake-agent-data-api-log-errors",
+  "earthquake-agent-webhook-receiver-log-errors",
+  "earthquake-agent-subscription-manager-log-errors",
+  "earthquake-agent-usgsmcp-log-errors",
+  "earthquake-agent-schedulermcp-log-errors",
 ];
 
 export class MonitoringStack extends cdk.Stack {

@@ -9,7 +9,7 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 
-import { addLambdaAlarms } from "./alarms.js";
+import { addLambdaAlarms, addLogErrorAlarm } from "./alarms.js";
 import { resolveDomainName, type SharedProps } from "./shared-props.js";
 
 export type AgentStackProps = cdk.StackProps & SharedProps;
@@ -240,5 +240,6 @@ export class AgentStack extends cdk.Stack {
 
     // --- Monitoring alarms ---------------------------------------------------
     addLambdaAlarms(this, "agent", handlerFn);
+    addLogErrorAlarm(this, "agent", handlerFn);
   }
 }

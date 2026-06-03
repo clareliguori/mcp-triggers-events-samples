@@ -12,7 +12,7 @@ import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53targets from "aws-cdk-lib/aws-route53-targets";
 import { Construct } from "constructs";
 
-import { addApiGatewayAlarms, addLambdaAlarms } from "./alarms.js";
+import { addApiGatewayAlarms, addLambdaAlarms, addLogErrorAlarm } from "./alarms.js";
 
 /**
  * Configuration for an {@link McpServerConstruct}.
@@ -270,6 +270,7 @@ export class McpServerConstruct extends Construct {
     // --- Monitoring alarms ---------------------------------------------------
     const alarmId = props.exportPrefix.toLowerCase();
     addLambdaAlarms(this, alarmId, handler);
+    addLogErrorAlarm(this, alarmId, handler);
     addApiGatewayAlarms(this, alarmId, api);
   }
 }

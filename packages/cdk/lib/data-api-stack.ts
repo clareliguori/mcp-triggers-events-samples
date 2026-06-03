@@ -12,7 +12,7 @@ import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53targets from "aws-cdk-lib/aws-route53-targets";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { addApiGatewayAlarms, addLambdaAlarms } from "./alarms.js";
+import { addApiGatewayAlarms, addLambdaAlarms, addLogErrorAlarm } from "./alarms.js";
 import { resolveDomainName, type SharedProps } from "./shared-props.js";
 
 export type DataApiStackProps = cdk.StackProps & SharedProps;
@@ -501,6 +501,7 @@ export class DataApiStack extends cdk.Stack {
 
     // --- Monitoring alarms ---------------------------------------------------
     addLambdaAlarms(this, "data-api", handlerFn);
+    addLogErrorAlarm(this, "data-api", handlerFn);
     addApiGatewayAlarms(this, "data-api", api);
   }
 }

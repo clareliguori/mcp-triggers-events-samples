@@ -9,6 +9,7 @@ import * as cdk from "aws-cdk-lib";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import type * as apigateway from "aws-cdk-lib/aws-apigateway";
 import type * as lambda from "aws-cdk-lib/aws-lambda";
+import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
 
 /**
@@ -79,4 +80,47 @@ export function addApiGatewayAlarms(
   });
 
   return { serverErrorAlarm };
+}
+
+/**
+ * Add an alarm that fires when the Lambda logs contain ERROR-level messages.
+ *
+ * This catches application-level errors that are handled gracefully (the
+ * function returns success) but indicate something is wrong — e.g. a
+ * subscription creation failure that is logged and skipped.
+ */
+export function addLogErrorAlarm(
+  scope: Construct,
+  id: string,
+  fn: lambda.IFunction,
+): { logErrorAlarm: cloudwatch.Alarm } {
+  const logGroup = logs.LogGroup.fromLogGroupName(
+    scope,
+    `${id}LogGroup`,
+    `/aws/lambda/${fn.functionName}`,
+  );
+
+  const metricFilter = new logs.MetricFilter(scope, `${id}ErrorFilter`, {
+    logGroup,
+    filterPattern: logs.FilterPattern.literal("ERROR"),
+    metricNamespace: "EarthquakeAgent",
+    metricName: `${id}-log-errors`,
+    metricValue: "1",
+  });
+
+  const logErrorAlarm = new cloudwatch.Alarm(scope, `${id}LogErrorAlarm`, {
+    alarmName: `earthquake-agent-${id}-log-errors`,
+    alarmDescription: `Application-level ERROR messages in ${id} logs`,
+    metric: metricFilter.metric({
+      period: cdk.Duration.minutes(5),
+      statistic: "Sum",
+    }),
+    threshold: 1,
+    evaluationPeriods: 1,
+    comparisonOperator:
+      cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+    treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+  });
+
+  return { logErrorAlarm };
 }
