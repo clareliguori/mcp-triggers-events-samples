@@ -124,6 +124,7 @@ async function startAuthorizeRedirect(opts: {
   // secrets that grant API access; they are single-use and cleared on return.
   sessionStorage.setItem(PKCE_VERIFIER_KEY, verifier);
   sessionStorage.setItem(PKCE_STATE_KEY, stateValue);
+  sessionStorage.setItem("eqa.returnTo", window.location.pathname);
 
   window.location.assign(
     buildAuthorizeUrl(cognito, {
@@ -194,6 +195,12 @@ export async function handleRedirectCallback(
     state.status = "unauthenticated";
   } finally {
     cleanOAuthParams(url);
+    // Restore the page the user was on before the auth redirect.
+    const returnTo = sessionStorage.getItem("eqa.returnTo");
+    sessionStorage.removeItem("eqa.returnTo");
+    if (returnTo && returnTo !== "/" && state.status === "authenticated") {
+      void import("$app/navigation").then(({ goto }) => goto(returnTo, { replaceState: true }));
+    }
   }
   return state.status === "authenticated";
 }
