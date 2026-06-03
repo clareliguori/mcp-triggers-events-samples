@@ -220,7 +220,7 @@ export const subscribeResultSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const webhookSubscriptionSchema = z.object({
-  subscriptionId: uuidV4Schema,
+  subscriptionId: z.string().min(1),
   customerId: customerIdSchema,
   serverEndpoint: z.string().url(),
   eventName: z.enum([
