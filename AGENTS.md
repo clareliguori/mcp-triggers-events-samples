@@ -238,6 +238,19 @@ CDK changes:
 cd packages/cdk && npm run synth   # cdk synth all stacks (must succeed, no circular deps)
 ```
 
+After deploying changes, **always run the integration tests** against the live
+stack to validate end-to-end behavior (wire format compatibility, cross-service
+contracts):
+
+```bash
+AWS_REGION=us-west-2 npx vitest run packages/integration-tests/src/e2e.test.ts
+```
+
+Unit tests alone do not catch protocol-level mismatches between services (e.g.
+subscription ID format, request/response wire shapes) because each service's
+unit tests mock its dependencies. The e2e tests exercise the real deployed
+services talking to each other.
+
 `packages/cdk/lib/subscription-ttl.test.ts` is a vitest test in the CDK package;
 it runs as part of `npm test`.
 
