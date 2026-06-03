@@ -766,7 +766,10 @@ const defaultSubscribeOnServer: RefreshDependencies["subscribeOnServer"] =
           url: inputs.callbackUrl,
           secret: inputs.secret,
         },
-        params: inputs.inputSchema ?? {},
+        params: {
+          ...(inputs.inputSchema ?? {}),
+          customerId: inputs.customerId,
+        },
       };
       const result = await client.request(
         {
