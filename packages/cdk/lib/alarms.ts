@@ -83,11 +83,11 @@ export function addApiGatewayAlarms(
 }
 
 /**
- * Add an alarm that fires when the Lambda logs contain ERROR-level messages.
+ * Add an alarm that fires when the Lambda logs contain ERROR or WARN messages.
  *
- * This catches application-level errors that are handled gracefully (the
- * function returns success) but indicate something is wrong — e.g. a
- * subscription creation failure that is logged and skipped.
+ * This catches application-level issues that don't crash the Lambda — e.g.
+ * webhook delivery failures (WARN: non-2xx), subscription creation failures
+ * (ERROR), or dropped events.
  */
 export function addLogErrorAlarm(
   scope: Construct,
@@ -102,7 +102,7 @@ export function addLogErrorAlarm(
 
   const metricFilter = new logs.MetricFilter(scope, `${id}ErrorFilter`, {
     logGroup,
-    filterPattern: logs.FilterPattern.literal("ERROR"),
+    filterPattern: logs.FilterPattern.anyTerm("ERROR", "WARN"),
     metricNamespace: "EarthquakeAgent",
     metricName: `${id}-log-errors`,
     metricValue: "1",
