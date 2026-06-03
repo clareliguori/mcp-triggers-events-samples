@@ -350,7 +350,7 @@ async function refreshOne(
 
   const result = await deps.subscribeOnServer({
     server,
-    callbackUrl: subscription.callbackUrl,
+    callbackUrl: deps.resolveCallbackUrl(),
     secret,
     customerId: customer.config.customerId,
     inputSchema: buildInputSchema(server, customer.config),
@@ -625,7 +625,7 @@ export function createDefaultRefreshDependencies(): RefreshDependencies {
     listActiveCustomers: defaultListActiveCustomers,
     subscribeOnServer: defaultSubscribeOnServer,
     upsertSubscriptionRecord: defaultUpsertSubscriptionRecord,
-    resolveCallbackUrl: () => requireEnv("WEBHOOK_URL"),
+    resolveCallbackUrl: () => `${requireEnv("WEBHOOK_URL").replace(/\/+$/, "")}/webhook`,
   };
 }
 
