@@ -67,7 +67,7 @@ export class UsgsServerStack extends cdk.Stack {
         "Alias to the MCP Server 1 custom domain (usgs-mcp.earthquake-agent.*)",
       extraEnvironment: {
         USGS_FEED_URL:
-          "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson",
+          "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/1.0_day.geojson",
       },
     });
 
