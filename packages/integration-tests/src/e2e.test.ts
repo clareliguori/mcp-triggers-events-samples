@@ -437,6 +437,79 @@ flow(
 );
 
 // ---------------------------------------------------------------------------
+// Flow 4c: SDK briefing delivery (emit-test-event on scheduler)
+// ---------------------------------------------------------------------------
+
+flow(
+  "SDK briefing delivery",
+  [
+    "dataApiUrl",
+    "schedulerMcpUrl",
+    "webhookUrl",
+    "reportsBucketName",
+    "sessionsBucketName",
+    "customerConfigTableName",
+  ],
+  (harness) => {
+    it(
+      "delivers a briefing trigger through the full SDK path and generates a report",
+      async () => {
+        const customerId = newCustomerId();
+        const earthquakeId = `test-briefing-sdk-${Date.now()}`;
+
+        await harness.putConfig(customerId, customerConfigInput());
+
+        // Wait for subscriptions.
+        await pollUntil(async () => {
+          const res = await harness.listSubscriptions(customerId);
+          if (res.statusCode !== 200) return undefined;
+          const body = res.json as { subscriptions?: unknown[] };
+          return (body.subscriptions ?? []).length >= 2 ? true : undefined;
+        }, POLL);
+
+        // Seed an earthquake so the briefing has content to report on.
+        const emitEq = await harness.emitTestEvent({
+          earthquakeId,
+          magnitude: 6.0,
+          place: "SDK Briefing Test Location",
+          coordinates: { longitude: -118.0, latitude: 34.0, depth: 8.0 },
+          time: new Date().toISOString(),
+          tsunami: false,
+          felt: null,
+          alert: null,
+          url: `https://earthquake.usgs.gov/earthquakes/eventpage/${earthquakeId}`,
+        });
+        expect(emitEq.statusCode).toBe(200);
+
+        // Wait for the earthquake to be processed by the agent.
+        await pollUntil(async () => {
+          const messages = await harness.getSessionMessages(customerId);
+          return messages.some(
+            (m) => m.role === "user" && JSON.stringify(m.content).includes(earthquakeId),
+          ) ? true : undefined;
+        }, POLL);
+
+        // Trigger a briefing via the scheduler's SDK emit-test-event endpoint.
+        const emitBriefing = await harness.emitTestBriefing(customerId, "SDK integ test");
+        expect(emitBriefing.statusCode).toBe(200);
+        expect((emitBriefing.json as { delivered: boolean }).delivered).toBe(true);
+
+        // Poll until a report appears.
+        const report = await pollUntil(async () => {
+          const reports = await harness.listReports(customerId);
+          return reports.length > 0 ? reports[0] : undefined;
+        }, POLL);
+        expect(report).toBeDefined();
+        expect(report!.reportId).toBeTruthy();
+
+        await harness.deleteConfig(customerId);
+      },
+      POLL.timeoutMs * 3,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
 // Flow 5: Subscription refresh
 // ---------------------------------------------------------------------------
 

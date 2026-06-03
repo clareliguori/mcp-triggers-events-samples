@@ -271,6 +271,55 @@ async function handleManualTrigger(
 }
 
 // ---------------------------------------------------------------------------
+// Test emit endpoint (POST /emit-test-event)
+// ---------------------------------------------------------------------------
+
+function isEmitTestRequest(event: APIGatewayProxyEvent): boolean {
+  return (event.path || "").includes("/emit-test-event");
+}
+
+async function handleEmitTest(
+  event: APIGatewayProxyEvent,
+): Promise<APIGatewayProxyResult> {
+  if (event.httpMethod.toUpperCase() !== "POST") {
+    return { statusCode: 405, headers: JSON_HEADERS, body: JSON.stringify({ error: "POST only" }) };
+  }
+  const body = JSON.parse(event.body ?? "{}") as {
+    customerId?: string;
+    reason?: string;
+  };
+  if (!body.customerId) {
+    return { statusCode: 400, headers: JSON_HEADERS, body: JSON.stringify({ error: "customerId required" }) };
+  }
+
+  // Deliver to all active briefing.trigger subscriptions for this customer.
+  const subs = await subscriptionStore.listByEvent(EVENT_NAME_BRIEFING_TRIGGER);
+  const nowMs = Date.now();
+  const matching = subs.filter(
+    (s) => s.expiresAt > nowMs && (s.params as { customerId?: string }).customerId === body.customerId,
+  );
+
+  let delivered = 0;
+  for (const sub of matching) {
+    const data: BriefingTriggerData = {
+      triggerType: "manual",
+      customerId: body.customerId,
+      scheduledTime: new Date().toISOString(),
+      ...(body.reason ? { reason: body.reason } : {}),
+    };
+    const ok = await deliverWebhookToSubscription(
+      sub,
+      EVENT_NAME_BRIEFING_TRIGGER,
+      data as unknown as Record<string, unknown>,
+      `${body.customerId}:${data.scheduledTime}`,
+    );
+    if (ok) delivered += 1;
+  }
+
+  return { statusCode: 200, headers: JSON_HEADERS, body: JSON.stringify({ delivered: delivered > 0, count: delivered }) };
+}
+
+// ---------------------------------------------------------------------------
 // Lambda entry point (dual trigger)
 // ---------------------------------------------------------------------------
 
@@ -287,6 +336,10 @@ export const handler = async (
   event: unknown,
 ): Promise<APIGatewayProxyResult | void> => {
   if (isApiGatewayEvent(event)) {
+    // Test emit endpoint
+    if (isEmitTestRequest(event)) {
+      return handleEmitTest(event);
+    }
     // Manual trigger route takes priority
     if (isTriggerBriefingRequest(event)) {
       try {

@@ -382,6 +382,24 @@ export class Harness {
     );
   }
 
+  /**
+   * Emit a synthetic briefing trigger via the Scheduler server's
+   * POST /emit-test-event endpoint. Exercises the full SDK webhook delivery
+   * path for briefing events.
+   */
+  emitTestBriefing(customerId: string, reason?: string): Promise<HttpResult> {
+    const base = (this.config.schedulerMcpUrl ?? "").replace(/\/+$/, "");
+    return signedRequest(
+      {
+        method: "POST",
+        url: `${base}/emit-test-event`,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ customerId, reason }),
+      },
+      this.config.region,
+    );
+  }
+
   /** Create a subscription record (used to seed routing in the webhook flows). */
   createSubscription(
     customerId: string,
