@@ -35,15 +35,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export {
-  MCP_SUBSCRIPTION_ID_HEADER,
-  WEBHOOK_RETRY_DELAYS_MS,
-  loadActiveSubscriptions,
-  setDocumentClientForTesting,
-  setFetchForTesting,
-  setKmsClientForTesting,
-  setSleepForTesting,
 } from "@mcp-events/mcp-server-core";
-export type { DeliveryOutcome, FetchLike } from "@mcp-events/mcp-server-core";
 
 // ---------------------------------------------------------------------------
 // MCP Server (SDK) — module-level instance with subscription store

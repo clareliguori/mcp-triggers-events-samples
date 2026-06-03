@@ -21,8 +21,6 @@ import {
   DynamoDBWebhookSubscriptionStore,
   createMcpLambdaHandler,
   deliverWebhookToSubscription,
-  readRawBody,
-  tryParseJson,
 } from "@mcp-events/mcp-server-core";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 
@@ -33,15 +31,7 @@ import { cronMatchesAt } from "./scheduler.js";
 // ---------------------------------------------------------------------------
 
 export {
-  MCP_SUBSCRIPTION_ID_HEADER,
-  WEBHOOK_RETRY_DELAYS_MS,
-  loadActiveSubscriptions,
-  setDocumentClientForTesting,
-  setFetchForTesting,
-  setKmsClientForTesting,
-  setSleepForTesting,
 } from "@mcp-events/mcp-server-core";
-export type { DeliveryOutcome, FetchLike } from "@mcp-events/mcp-server-core";
 
 // ---------------------------------------------------------------------------
 // HTTP plumbing
@@ -270,7 +260,14 @@ async function handleManualTrigger(
     };
   }
 
-  const reason = extractReason(tryParseJson(readRawBody(event)));
+  const rawBody = event.body
+    ? event.isBase64Encoded
+      ? Buffer.from(event.body, "base64").toString("utf8")
+      : event.body
+    : "";
+  let bodyJson: unknown;
+  try { bodyJson = rawBody ? JSON.parse(rawBody) : undefined; } catch { bodyJson = undefined; }
+  const reason = extractReason(bodyJson);
   const result = await triggerBriefingForCustomer(parsed.data, reason);
 
   return {
