@@ -159,7 +159,7 @@ export const briefingTriggerDataSchema = z.object({
 });
 
 export const earthquakeDetectedEventSchema = z.object({
-  eventId: uuidV4Schema,
+  eventId: z.string().min(1),
   name: z.literal(EVENT_NAME_EARTHQUAKE_DETECTED),
   timestamp: isoDateTimeSchema,
   data: earthquakeDetectedDataSchema,
@@ -167,7 +167,7 @@ export const earthquakeDetectedEventSchema = z.object({
 });
 
 export const briefingTriggerEventSchema = z.object({
-  eventId: uuidV4Schema,
+  eventId: z.string().min(1),
   name: z.literal(EVENT_NAME_BRIEFING_TRIGGER),
   timestamp: isoDateTimeSchema,
   data: briefingTriggerDataSchema,
