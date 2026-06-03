@@ -9,6 +9,7 @@
   import CircleCheckIcon from "@lucide/svelte/icons/circle-check";
   import TriangleAlertIcon from "@lucide/svelte/icons/triangle-alert";
   import AlarmClockIcon from "@lucide/svelte/icons/alarm-clock";
+  import { marked } from "marked";
   import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
   import { auth, signIn } from "$lib/auth";
   import { fetchConversation } from "$lib/conversation/conversation-api.js";
@@ -21,6 +22,11 @@
 
   /** How often to poll for new conversation activity (Requirement 10.7). */
   const REFRESH_INTERVAL_MS = 30_000;
+
+  /** Render markdown to HTML. */
+  function md(text: string): string {
+    return marked.parse(text, { async: false }) as string;
+  }
 
   let timeline = $state<TimelineItem[]>([]);
   let loadState = $state<LoadState>("loading");
@@ -324,9 +330,9 @@
                   <BotIcon class="size-4" />
                 </div>
                 <div
-                  class="bg-card max-w-[85%] rounded-2xl rounded-tl-sm border px-4 py-2 text-sm"
+                  class="bg-card max-w-[85%] rounded-2xl rounded-tl-sm border px-4 py-2 text-sm [&_h1]:text-base [&_h1]:font-semibold [&_h1]:mt-3 [&_h1]:mb-1 [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-medium [&_h3]:mt-2 [&_h3]:mb-0.5 [&_p]:my-1 [&_ul]:my-1 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-1 [&_ol]:pl-4 [&_ol]:list-decimal [&_hr]:my-2 [&_hr]:border-border"
                 >
-                  <p class="whitespace-pre-line">{item.text}</p>
+                  {@html md(item.text)}
                 </div>
               </div>
             {:else if item.kind === "tool-use"}
