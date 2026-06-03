@@ -373,6 +373,70 @@ flow(
 );
 
 // ---------------------------------------------------------------------------
+// Flow 4b: SDK webhook delivery (emit-test-event end-to-end)
+// ---------------------------------------------------------------------------
+
+flow(
+  "SDK webhook delivery",
+  [
+    "dataApiUrl",
+    "usgsMcpUrl",
+    "webhookUrl",
+    "sessionsBucketName",
+    "customerConfigTableName",
+  ],
+  (harness) => {
+    it(
+      "delivers a synthetic earthquake through the full SDK path to the agent session",
+      async () => {
+        const customerId = newCustomerId();
+        const earthquakeId = `test-sdk-${Date.now()}`;
+
+        await harness.putConfig(customerId, customerConfigInput());
+
+        // Wait for subscription manager to create subscriptions.
+        const subs = await pollUntil(async () => {
+          const res = await harness.listSubscriptions(customerId);
+          if (res.statusCode !== 200) return undefined;
+          const body = res.json as { subscriptions?: { subscriptionId: string; eventName: string }[] };
+          return (body.subscriptions ?? []).length >= 2 ? body.subscriptions : undefined;
+        }, POLL);
+        expect(subs).toBeDefined();
+
+        // Emit a synthetic earthquake. Delivers to all matching subscriptions
+        // via: SDK store lookup -> HMAC signing -> webhook POST -> receiver -> SQS -> agent.
+        const emitResult = await harness.emitTestEvent({
+          earthquakeId,
+          magnitude: 5.0,
+          place: "Integration Test - SDK Delivery",
+          coordinates: { longitude: -120.0, latitude: 37.0, depth: 10.0 },
+          time: new Date().toISOString(),
+          tsunami: false,
+          felt: null,
+          alert: null,
+          url: `https://earthquake.usgs.gov/earthquakes/eventpage/${earthquakeId}`,
+        });
+        expect(emitResult.statusCode).toBe(200);
+        expect((emitResult.json as { delivered: boolean }).delivered).toBe(true);
+
+        // Poll the agent session until the synthetic earthquake appears.
+        const found = await pollUntil(async () => {
+          const messages = await harness.getSessionMessages(customerId);
+          const hit = messages.some(
+            (m) => m.role === "user" && JSON.stringify(m.content).includes(earthquakeId),
+          );
+          return hit ? true : undefined;
+        }, POLL);
+        expect(found).toBe(true);
+
+        await harness.deleteConfig(customerId);
+      },
+      POLL.timeoutMs * 2,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
 // Flow 5: Subscription refresh
 // ---------------------------------------------------------------------------
 

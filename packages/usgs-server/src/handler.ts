@@ -164,6 +164,49 @@ export async function runPollCycle(
 }
 
 // ---------------------------------------------------------------------------
+// Test emit endpoint (POST /emit-test-event)
+// ---------------------------------------------------------------------------
+
+const JSON_HEADERS = { "Content-Type": "application/json" } as const;
+
+function isEmitTestRequest(event: APIGatewayProxyEvent): boolean {
+  return (event.path || "").includes("/emit-test-event");
+}
+
+async function handleEmitTest(
+  event: APIGatewayProxyEvent,
+): Promise<APIGatewayProxyResult> {
+  if (event.httpMethod.toUpperCase() !== "POST") {
+    return { statusCode: 405, headers: JSON_HEADERS, body: JSON.stringify({ error: "POST only" }) };
+  }
+  const body = JSON.parse(event.body ?? "{}") as {
+    earthquake?: Record<string, unknown>;
+  };
+  if (!body.earthquake) {
+    return { statusCode: 400, headers: JSON_HEADERS, body: JSON.stringify({ error: "earthquake required" }) };
+  }
+
+  // Deliver to all active subscriptions for this event type.
+  const subs = await subscriptionStore.listByEvent(EVENT_NAME_EARTHQUAKE_DETECTED);
+  const nowMs = Date.now();
+  const active = subs.filter((s) => s.expiresAt > nowMs);
+
+  let delivered = 0;
+  for (const sub of active) {
+    if (!matchesFilter(body.earthquake as unknown as EarthquakeDetectedData, sub.params as SubscriptionParams)) continue;
+    const ok = await deliverWebhookToSubscription(
+      sub,
+      EVENT_NAME_EARTHQUAKE_DETECTED,
+      body.earthquake,
+      (body.earthquake.earthquakeId as string) ?? "test-event",
+    );
+    if (ok) delivered += 1;
+  }
+
+  return { statusCode: 200, headers: JSON_HEADERS, body: JSON.stringify({ delivered: delivered > 0, count: delivered }) };
+}
+
+// ---------------------------------------------------------------------------
 // Lambda entry point (dual trigger)
 // ---------------------------------------------------------------------------
 
@@ -180,6 +223,9 @@ export const handler = async (
   event: unknown,
 ): Promise<APIGatewayProxyResult | void> => {
   if (isApiGatewayEvent(event)) {
+    if (isEmitTestRequest(event)) {
+      return handleEmitTest(event);
+    }
     return mcpHandler(event);
   }
 

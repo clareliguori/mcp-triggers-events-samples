@@ -364,6 +364,24 @@ export class Harness {
     );
   }
 
+  /**
+   * Emit a synthetic earthquake event via the USGS server's POST /emit-test-event
+   * endpoint. Delivers to all matching subscriptions via the full SDK webhook
+   * delivery path (store lookup, HMAC signing, POST to webhook receiver).
+   */
+  emitTestEvent(earthquake: Record<string, unknown>): Promise<HttpResult> {
+    const base = (this.config.usgsMcpUrl ?? "").replace(/\/+$/, "");
+    return signedRequest(
+      {
+        method: "POST",
+        url: `${base}/emit-test-event`,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ earthquake }),
+      },
+      this.config.region,
+    );
+  }
+
   /** Create a subscription record (used to seed routing in the webhook flows). */
   createSubscription(
     customerId: string,
