@@ -8,6 +8,8 @@
 
 import * as cdk from "aws-cdk-lib";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
+import * as sns from "aws-cdk-lib/aws-sns";
 import { Construct } from "constructs";
 
 /** All alarm names created by addLambdaAlarms and addApiGatewayAlarms across stacks. */
@@ -53,11 +55,24 @@ export class MonitoringStack extends cdk.Stack {
       cloudwatch.Alarm.fromAlarmName(this, name, name),
     );
 
-    new cloudwatch.CompositeAlarm(this, "SystemHealthAlarm", {
+    const topic = new sns.Topic(this, "AlarmTopic", {
+      topicName: "earthquake-agent-alarms",
+      displayName: "Earthquake Agent System Alarms",
+    });
+
+    const compositeAlarm = new cloudwatch.CompositeAlarm(this, "SystemHealthAlarm", {
       compositeAlarmName: "earthquake-agent-system-health",
       alarmDescription:
         "Aggregate alarm for the Earthquake Agent system - fires when any component alarm is in ALARM state",
       alarmRule: cloudwatch.AlarmRule.anyOf(...childAlarms),
+    });
+
+    compositeAlarm.addAlarmAction(new cloudwatchActions.SnsAction(topic));
+
+    new cdk.CfnOutput(this, "AlarmTopicArn", {
+      value: topic.topicArn,
+      description: "SNS topic ARN for system health alarm notifications",
+      exportName: "EarthquakeAgent-AlarmTopicArn",
     });
   }
 }
