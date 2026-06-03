@@ -61,7 +61,7 @@ const server = new McpServer(
     events: {
       serverless: true,
       webhook: {
-        ttlMs: 30 * 60 * 1000,
+        ttlMs: 2 * 60 * 60 * 1000,
         subscriptionStore,
         getPrincipal: (ctx) => ctx.http?.authInfo?.clientId ?? ctx.sessionId ?? "lambda",
       },

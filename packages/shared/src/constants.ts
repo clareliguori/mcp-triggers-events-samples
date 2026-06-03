@@ -103,7 +103,7 @@ export const CRON_REGEX = new RegExp(`^${CRON_FIELD}( ${CRON_FIELD}){4}$`);
  * Default TTL (in seconds) for an MCP `events/subscribe` subscription.
  * Subscription Manager refreshes subscriptions before this elapses.
  */
-export const DEFAULT_SUBSCRIPTION_TTL_SECONDS = 1800; // 30 minutes
+export const DEFAULT_SUBSCRIPTION_TTL_SECONDS = 7200; // 2 hours
 
 /**
  * Threshold (in seconds) before {@link DEFAULT_SUBSCRIPTION_TTL_SECONDS}
