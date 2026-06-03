@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { page } from "$app/state";
+  import { marked } from "marked";
   import ActivityIcon from "@lucide/svelte/icons/activity";
   import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
   import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
@@ -60,6 +61,11 @@
       void load();
     }
   });
+
+  /** Render markdown to sanitized HTML. */
+  function md(text: string): string {
+    return marked.parse(text, { async: false }) as string;
+  }
 </script>
 
 <main class="mx-auto flex min-h-svh max-w-3xl flex-col gap-6 px-4 py-10">
@@ -133,7 +139,7 @@
         </Card.Action>
       </Card.Header>
       <Card.Content>
-        <p class="text-sm whitespace-pre-line">{report.summary}</p>
+        <p class="text-sm">{@html md(report.summary)}</p>
       </Card.Content>
     </Card.Root>
 
@@ -176,7 +182,7 @@
         <Card.Description>Analysis of geographic clustering.</Card.Description>
       </Card.Header>
       <Card.Content>
-        <p class="text-sm whitespace-pre-line">{report.geographicPatterns}</p>
+        <p class="text-sm">{@html md(report.geographicPatterns)}</p>
       </Card.Content>
     </Card.Root>
 
@@ -187,7 +193,7 @@
         <Card.Description>How this period compares to the last.</Card.Description>
       </Card.Header>
       <Card.Content>
-        <p class="text-sm whitespace-pre-line">{report.comparisonToPrevious}</p>
+        <p class="text-sm">{@html md(report.comparisonToPrevious)}</p>
       </Card.Content>
     </Card.Root>
   {/if}
