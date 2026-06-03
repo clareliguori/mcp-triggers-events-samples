@@ -193,6 +193,8 @@ const defaultMcpSubscriber: McpSubscriber = async (serverUrl, params) => {
   try {
     // Map our internal SubscribeParams shape to the MCP Events protocol wire
     // format expected by the SDK's McpServer (events/subscribe).
+    // Include customerId in params so the server's subscription store can route
+    // by customer for schedule checks and manual triggers.
     const wireParams = {
       name: params.event,
       delivery: {
@@ -200,7 +202,10 @@ const defaultMcpSubscriber: McpSubscriber = async (serverUrl, params) => {
         url: params.delivery.url,
         secret: params.delivery.secret,
       },
-      params: params.inputSchema ?? {},
+      params: {
+        ...(params.inputSchema ?? {}),
+        customerId: params.customerId,
+      },
     };
     return await client.request(
       {

@@ -1,34 +1,29 @@
 /**
- * MCP Server 1 (USGS Earthquake Feed) Lambda handler — migrated to the SDK's
- * McpServer for protocol handling (events/list, events/subscribe,
- * events/unsubscribe) while retaining the existing poll cycle and webhook
- * delivery path.
+ * MCP Server 1 (USGS Earthquake Feed) Lambda handler — fully migrated to the
+ * SDK's McpServer for protocol handling (events/subscribe, list, unsubscribe)
+ * with our DynamoDBWebhookSubscriptionStore. Webhook delivery during the poll
+ * cycle uses the store directly + SDK's webhook signing for Lambda-safe awaitable
+ * delivery.
  *
  * Dual-triggered:
  * 1. EventBridge (every 5 min) — poll USGS, detect new earthquakes, deliver
- *    to matching subscriptions.
- * 2. API Gateway — MCP protocol (via SDK McpServer).
+ *    matching events as signed webhooks to subscriptions from the store.
+ * 2. API Gateway — MCP protocol (via SDK McpServer transport).
  */
 
-import type {
-  EarthquakeDetectedData,
-  McpEventPayload,
-  WebhookSubscription,
-} from "@mcp-events/shared";
+import type { EarthquakeDetectedData, SubscriptionParams } from "@mcp-events/shared";
 import { EVENT_NAME_EARTHQUAKE_DETECTED } from "@mcp-events/shared";
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
-import type { DeliveryOutcome } from "@mcp-events/mcp-server-core";
 import {
-  buildMcpEvent,
+  DynamoDBWebhookSubscriptionStore,
   createMcpLambdaHandler,
-  deliverEvent,
+  deliverWebhookToSubscription,
   getFetchImpl,
-  loadActiveSubscriptions,
 } from "@mcp-events/mcp-server-core";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 
-import { computeDeliveries } from "./filter.js";
+import { matchesFilter } from "./filter.js";
 import {
   type FetchLike as PollerFetchLike,
   commitCursor,
@@ -51,38 +46,41 @@ export {
 export type { DeliveryOutcome, FetchLike } from "@mcp-events/mcp-server-core";
 
 // ---------------------------------------------------------------------------
-// MCP Server (SDK) — protocol handling
+// MCP Server (SDK) — module-level instance with subscription store
 // ---------------------------------------------------------------------------
 
-function createServer(): McpServer {
-  const s = new McpServer(
-    { name: "usgs-earthquake-feed", version: "1.0.0" },
-    {
-      events: {
-        serverless: true,
-        webhook: {
-          ttlMs: 30 * 60 * 1000,
-          getPrincipal: (ctx) => ctx.http?.authInfo?.clientId ?? ctx.sessionId ?? "lambda",
-        },
+const subscriptionStore = new DynamoDBWebhookSubscriptionStore();
+
+const server = new McpServer(
+  { name: "usgs-earthquake-feed", version: "1.0.0" },
+  {
+    events: {
+      serverless: true,
+      webhook: {
+        ttlMs: 30 * 60 * 1000,
+        subscriptionStore,
+        getPrincipal: (ctx) => ctx.http?.authInfo?.clientId ?? ctx.sessionId ?? "lambda",
       },
     },
-  );
+  },
+);
 
-  s.registerEvent("earthquake.detected", {
-    description:
-      "Emitted when a new earthquake is detected matching subscription filters",
-    inputSchema: z.object({
-      minMagnitude: z.number().optional().describe("Only deliver earthquakes >= this magnitude"),
-      region: z.string().optional().describe("Geographic region filter"),
-      maxDepthKm: z.number().optional().describe("Only deliver earthquakes shallower than this depth (km)"),
-    }),
-    emitOnly: true,
-  });
+server.registerEvent("earthquake.detected", {
+  description:
+    "Emitted when a new earthquake is detected matching subscription filters",
+  inputSchema: z.object({
+    minMagnitude: z.number().optional().describe("Only deliver earthquakes >= this magnitude"),
+    region: z.string().optional().describe("Geographic region filter"),
+    maxDepthKm: z.number().optional().describe("Only deliver earthquakes shallower than this depth (km)"),
+    customerId: z.string().optional().describe("Customer ID for routing"),
+  }),
+  emitOnly: true,
+  matches: (params, data) => {
+    return matchesFilter(data as unknown as EarthquakeDetectedData, params as SubscriptionParams);
+  },
+});
 
-  return s;
-}
-
-const mcpHandler = createMcpLambdaHandler(createServer);
+const mcpHandler = createMcpLambdaHandler(server);
 
 // ---------------------------------------------------------------------------
 // Event type constant (preserved for tests)
@@ -113,36 +111,6 @@ export const EARTHQUAKE_EVENT_TYPE = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Webhook delivery (existing path)
-// ---------------------------------------------------------------------------
-
-export function buildEarthquakeEvent(
-  earthquake: EarthquakeDetectedData,
-  now: Date = new Date(),
-): McpEventPayload<EarthquakeDetectedData> {
-  return buildMcpEvent(
-    EVENT_NAME_EARTHQUAKE_DETECTED,
-    earthquake,
-    earthquake.earthquakeId,
-    now,
-  );
-}
-
-export async function deliverEarthquake(
-  subscription: WebhookSubscription,
-  earthquake: EarthquakeDetectedData,
-  now: Date = new Date(),
-): Promise<DeliveryOutcome> {
-  const event = buildMcpEvent(
-    EVENT_NAME_EARTHQUAKE_DETECTED,
-    earthquake,
-    earthquake.earthquakeId,
-    now,
-  );
-  return deliverEvent(subscription, event, now);
-}
-
-// ---------------------------------------------------------------------------
 // Poll cycle orchestration (EventBridge trigger)
 // ---------------------------------------------------------------------------
 
@@ -160,17 +128,29 @@ export async function runPollCycle(
     fetchImpl: getFetchImpl() as unknown as PollerFetchLike,
   });
 
-  const subscriptions = await loadActiveSubscriptions(now.getTime());
-  const deliveries = computeDeliveries(detection.newEarthquakes, subscriptions);
+  const subscriptions = await subscriptionStore.listByEvent(EVENT_NAME_EARTHQUAKE_DETECTED);
+  const nowMs = now.getTime();
+  const active = subscriptions.filter((s) => s.expiresAt > nowMs);
 
+  let deliveries = 0;
   let delivered = 0;
   let failed = 0;
-  for (const { subscription, earthquake } of deliveries) {
-    const outcome = await deliverEarthquake(subscription, earthquake, now);
-    if (outcome.delivered) {
-      delivered += 1;
-    } else {
-      failed += 1;
+
+  for (const earthquake of detection.newEarthquakes) {
+    for (const sub of active) {
+      if (!matchesFilter(earthquake, sub.params as SubscriptionParams)) continue;
+      deliveries += 1;
+      const ok = await deliverWebhookToSubscription(
+        sub,
+        EVENT_NAME_EARTHQUAKE_DETECTED,
+        earthquake as unknown as Record<string, unknown>,
+        earthquake.earthquakeId,
+      );
+      if (ok) {
+        delivered += 1;
+      } else {
+        failed += 1;
+      }
     }
   }
 
@@ -180,12 +160,7 @@ export async function runPollCycle(
     pollAt: now.toISOString(),
   });
 
-  return {
-    newEarthquakes: detection.newEarthquakes.length,
-    deliveries: deliveries.length,
-    delivered,
-    failed,
-  };
+  return { newEarthquakes: detection.newEarthquakes.length, deliveries, delivered, failed };
 }
 
 // ---------------------------------------------------------------------------

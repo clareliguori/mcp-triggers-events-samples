@@ -132,6 +132,16 @@ export class McpServerConstruct extends Construct {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // GSI for the SDK subscription store's listByEvent queries.
+    subscriptionsTable.addGlobalSecondaryIndex({
+      indexName: "eventName-index",
+      partitionKey: {
+        name: "eventName",
+        type: dynamodb.AttributeType.STRING,
+      },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // --- KMS: per-table key for client-side secret encryption ----------------
     // The MCP server client-side encrypts each subscription's client-supplied
     // `whsec_` secret with this customer-managed key before writing it to the

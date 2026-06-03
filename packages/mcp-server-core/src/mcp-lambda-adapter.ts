@@ -3,8 +3,9 @@
  *
  * Bridges API Gateway proxy events to the SDK's web-standard Request/Response
  * interface, enabling McpServer to run in a serverless Lambda. Each invocation
- * creates a fresh transport (stateless mode) — subscription state lives in the
- * external DynamoDBWebhookSubscriptionStore, not in-memory.
+ * creates a fresh transport (stateless mode) and connects it to the shared
+ * server instance. The server instance persists across invocations so
+ * registered events and the subscription store remain available for emitEvent.
  */
 
 import {
@@ -64,14 +65,13 @@ async function toApiGatewayResult(
 /**
  * Create an API Gateway Lambda handler that serves the MCP protocol via
  * the SDK's streamable HTTP transport. Each invocation creates a fresh
- * transport and connects a new server instance (subscription state is
- * externalized to the WebhookSubscriptionStore).
+ * transport connected to the shared server instance. The server is NOT
+ * closed between invocations so registered events persist.
  */
 export function createMcpLambdaHandler(
-  serverFactory: () => McpServer,
+  server: McpServer,
 ): (event: APIGatewayProxyEvent) => Promise<APIGatewayProxyResult> {
   return async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-    const server = serverFactory();
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless — no session tracking
       enableJsonResponse: true, // return JSON instead of SSE for Lambda compatibility
@@ -84,7 +84,7 @@ export function createMcpLambdaHandler(
       const response = await transport.handleRequest(request);
       return toApiGatewayResult(response);
     } finally {
-      await server.close();
+      await transport.close();
     }
   };
 }

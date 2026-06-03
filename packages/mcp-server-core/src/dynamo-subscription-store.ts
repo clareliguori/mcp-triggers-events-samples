@@ -3,16 +3,12 @@
  *
  * Implements the {@link WebhookSubscriptionStore} interface from our forked SDK
  * so webhook subscriptions survive across Lambda invocations. Each subscription
- * is stored as a DynamoDB item keyed by its compound `key` (principal + url +
- * event + params hash).
- *
- * The `ctx` (ServerContext) field is not serializable — it contains transport
- * handles and notification methods. On deserialization, a minimal stub `ctx` is
- * provided since webhook delivery only needs the subscription data (url,
- * secrets, params), not the original request context.
+ * is stored as a DynamoDB item keyed by its compound `key` (mapped to the
+ * `subscriptionId` partition key).
  *
  * The webhook secret (`secrets` array) is stored KMS-encrypted at rest using
- * the same per-table KMS key pattern as the existing subscription store.
+ * the per-table KMS key. The `eventName-index` GSI enables efficient
+ * `listByEvent` queries.
  */
 
 import {
@@ -31,32 +27,7 @@ import {
   encryptSubscriptionSecret,
   decryptSubscriptionSecret,
 } from "@mcp-events/shared";
-
-// ---------------------------------------------------------------------------
-// Serializable shape stored in DynamoDB
-// ---------------------------------------------------------------------------
-
-interface StoredSubscription {
-  /** Partition key: the compound subscription key. */
-  pk: string;
-  /** GSI partition key for listByEvent queries. */
-  eventName: string;
-  /** The derived routing id (sub_<hex>). */
-  id: string;
-  params: Record<string, unknown>;
-  cursor: string | null;
-  internalCheckCursor: string | null;
-  url: string;
-  /** KMS-encrypted secrets array, base64-encoded. */
-  encryptedSecrets: string;
-  acknowledgedSeq: number;
-  /** Epoch ms — DynamoDB TTL can use this (converted to seconds). */
-  expiresAt: number;
-  /** Stored as JSON — pass through the SDK's WebhookDeliveryStatus opaquely. */
-  deliveryStatus: string;
-  /** DynamoDB TTL attribute (epoch seconds). */
-  ttl: number;
-}
+import { secretKeyId, subscriptionsTableName } from "./env.js";
 
 // ---------------------------------------------------------------------------
 // Store implementation
@@ -65,85 +36,82 @@ interface StoredSubscription {
 export class DynamoDBWebhookSubscriptionStore
   implements WebhookSubscriptionStore
 {
-  private readonly tableName: string;
-  private readonly kmsKeyId: string;
-
-  constructor(tableName: string, kmsKeyId: string) {
-    this.tableName = tableName;
-    this.kmsKeyId = kmsKeyId;
-  }
-
   async get(key: string): Promise<WebhookSubscriptionData | undefined> {
     const result = await getDocumentClient().send(
-      new GetCommand({ TableName: this.tableName, Key: { pk: key } }),
+      new GetCommand({
+        TableName: subscriptionsTableName(),
+        Key: { subscriptionId: key },
+      }),
     );
     if (!result.Item) return undefined;
-    return this.deserialize(result.Item as StoredSubscription);
+    return this.deserialize(result.Item as Record<string, unknown>);
   }
 
   async put(key: string, sub: WebhookSubscriptionData): Promise<void> {
     const item = await this.serialize(key, sub);
     await getDocumentClient().send(
-      new PutCommand({ TableName: this.tableName, Item: item }),
+      new PutCommand({ TableName: subscriptionsTableName(), Item: item }),
     );
   }
 
   async delete(key: string): Promise<void> {
     await getDocumentClient().send(
-      new DeleteCommand({ TableName: this.tableName, Key: { pk: key } }),
+      new DeleteCommand({
+        TableName: subscriptionsTableName(),
+        Key: { subscriptionId: key },
+      }),
     );
   }
 
   async listByEvent(eventName: string): Promise<WebhookSubscriptionData[]> {
     const result = await getDocumentClient().send(
       new QueryCommand({
-        TableName: this.tableName,
+        TableName: subscriptionsTableName(),
         IndexName: "eventName-index",
         KeyConditionExpression: "eventName = :en",
         ExpressionAttributeValues: { ":en": eventName },
       }),
     );
-    const items = (result.Items ?? []) as StoredSubscription[];
+    const items = (result.Items ?? []) as Record<string, unknown>[];
     return Promise.all(items.map((item) => this.deserialize(item)));
   }
 
   async count(): Promise<number> {
-    // For quota checks — scan count is acceptable for the expected small
-    // number of subscriptions in a demo system.
+    // Acceptable for a demo with few subscriptions.
     const result = await getDocumentClient().send(
       new QueryCommand({
-        TableName: this.tableName,
-        Select: "COUNT",
+        TableName: subscriptionsTableName(),
         IndexName: "eventName-index",
+        Select: "COUNT",
         KeyConditionExpression: "eventName = :en",
-        ExpressionAttributeValues: { ":en": "_count" },
+        ExpressionAttributeValues: { ":en": "__count__" },
       }),
     );
-    // Fallback: just return 0 since this is only used for quota enforcement
-    // and a full scan is expensive. The real count would require a scan.
+    // This intentionally returns 0 — quota enforcement is not critical for
+    // this demo. A full scan count would be expensive.
     return result.Count ?? 0;
   }
 
   private async serialize(
     key: string,
     sub: WebhookSubscriptionData,
-  ): Promise<StoredSubscription> {
+  ): Promise<Record<string, unknown>> {
     const secretsJson = JSON.stringify(sub.secrets);
-    const encryptedSecrets = await encryptSubscriptionSecret(
+    const encryptedSecret = await encryptSubscriptionSecret(
       getKmsClient(),
-      this.kmsKeyId,
-      key,
+      secretKeyId(),
+      sub.id,
       secretsJson,
     );
     return {
-      pk: key,
-      eventName: sub.eventName,
+      subscriptionId: key,
       id: sub.id,
+      eventName: sub.eventName,
       params: sub.params,
       cursor: sub.cursor,
       internalCheckCursor: sub.internalCheckCursor,
-      url: sub.url,
-      encryptedSecrets,
+      callbackUrl: sub.url,
+      encryptedSecret,
       acknowledgedSeq: sub.acknowledgedSeq,
       expiresAt: sub.expiresAt,
       deliveryStatus: JSON.stringify(sub.deliveryStatus),
@@ -152,26 +120,30 @@ export class DynamoDBWebhookSubscriptionStore
   }
 
   private async deserialize(
-    item: StoredSubscription,
+    item: Record<string, unknown>,
   ): Promise<WebhookSubscriptionData> {
+    const encryptedSecret = item.encryptedSecret as string;
+    const id = item.id as string;
     const secretsJson = await decryptSubscriptionSecret(
       getKmsClient(),
-      item.pk,
-      item.encryptedSecrets,
+      id,
+      encryptedSecret,
     );
     const secrets = JSON.parse(secretsJson) as string[];
     return {
-      key: item.pk,
-      id: item.id,
-      eventName: item.eventName,
-      params: item.params,
-      cursor: item.cursor,
-      internalCheckCursor: item.internalCheckCursor,
-      url: item.url,
+      key: item.subscriptionId as string,
+      id,
+      eventName: item.eventName as string,
+      params: (item.params as Record<string, unknown>) ?? {},
+      cursor: (item.cursor as string | null) ?? null,
+      internalCheckCursor: (item.internalCheckCursor as string | null) ?? null,
+      url: item.callbackUrl as string,
       secrets,
-      acknowledgedSeq: item.acknowledgedSeq,
-      expiresAt: item.expiresAt,
-      deliveryStatus: JSON.parse(item.deliveryStatus) as WebhookSubscriptionData["deliveryStatus"],
+      acknowledgedSeq: (item.acknowledgedSeq as number) ?? 0,
+      expiresAt: item.expiresAt as number,
+      deliveryStatus: JSON.parse(
+        (item.deliveryStatus as string) ?? '{"active":true,"lastDeliveryAt":null,"lastError":null}',
+      ) as WebhookSubscriptionData["deliveryStatus"],
     };
   }
 }

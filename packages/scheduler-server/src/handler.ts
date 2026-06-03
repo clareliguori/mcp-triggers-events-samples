@@ -1,39 +1,32 @@
 /**
- * MCP Server 2 (Message Scheduler) Lambda handler — migrated to the SDK's
- * McpServer for protocol handling (events/list, events/subscribe,
- * events/unsubscribe) while retaining the existing subscription store and
- * webhook delivery path.
+ * MCP Server 2 (Message Scheduler) Lambda handler — fully migrated to the
+ * SDK's McpServer for protocol handling (events/subscribe, list, unsubscribe)
+ * with our DynamoDBWebhookSubscriptionStore. Webhook delivery during the
+ * schedule-check uses the store directly + SDK webhook signing for Lambda-safe
+ * awaitable delivery.
  *
  * Dual-triggered:
- * 1. EventBridge (every 1 min) — schedule check: load subscriptions, evaluate
- *    cron, deliver briefing.trigger to due customers.
+ * 1. EventBridge (every 1 min) — schedule check: load subscriptions from the
+ *    store, evaluate cron, deliver `briefing.trigger` to due customers.
  * 2. API Gateway — MCP protocol (via SDK McpServer) + manual trigger REST route.
  */
 
 import { randomUUID } from "node:crypto";
 
-import type {
-  BriefingTriggerData,
-  McpEventPayload,
-  WebhookSubscription,
-} from "@mcp-events/shared";
+import type { BriefingTriggerData } from "@mcp-events/shared";
 import { EVENT_NAME_BRIEFING_TRIGGER, uuidV4Schema } from "@mcp-events/shared";
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
-import type { DeliveryOutcome } from "@mcp-events/mcp-server-core";
 import {
-  buildMcpEvent,
+  DynamoDBWebhookSubscriptionStore,
   createMcpLambdaHandler,
-  createSubscription as createCoreSubscription,
-  deliverEvent,
-  loadActiveSubscriptions,
+  deliverWebhookToSubscription,
   readRawBody,
-  serverEndpoint,
   tryParseJson,
 } from "@mcp-events/mcp-server-core";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 
-import { dueSubscriptions } from "./scheduler.js";
+import { cronMatchesAt } from "./scheduler.js";
 
 // ---------------------------------------------------------------------------
 // Re-exports preserved for the existing test surface
@@ -57,37 +50,36 @@ export type { DeliveryOutcome, FetchLike } from "@mcp-events/mcp-server-core";
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
 // ---------------------------------------------------------------------------
-// MCP Server (SDK) — protocol handling for events/list, subscribe, unsubscribe
+// MCP Server (SDK) — module-level instance with subscription store
 // ---------------------------------------------------------------------------
 
-function createServer(): McpServer {
-  const s = new McpServer(
-    { name: "scheduler-briefing", version: "1.0.0" },
-    {
-      events: {
-        serverless: true,
-        webhook: {
-          ttlMs: 30 * 60 * 1000,
-          getPrincipal: (ctx) => ctx.http?.authInfo?.clientId ?? ctx.sessionId ?? "lambda",
-        },
+const subscriptionStore = new DynamoDBWebhookSubscriptionStore();
+
+const server = new McpServer(
+  { name: "scheduler-briefing", version: "1.0.0" },
+  {
+    events: {
+      serverless: true,
+      webhook: {
+        ttlMs: 30 * 60 * 1000,
+        subscriptionStore,
+        getPrincipal: (ctx) => ctx.http?.authInfo?.clientId ?? ctx.sessionId ?? "lambda",
       },
     },
-  );
+  },
+);
 
-  s.registerEvent("briefing.trigger", {
-    description:
-      "Emitted per customer schedule to trigger earthquake briefing generation",
-    inputSchema: z.object({
-      schedule: z.string().optional().describe("Cron expression for this customer's briefing schedule"),
-    }),
-    emitOnly: true,
-  });
+server.registerEvent("briefing.trigger", {
+  description:
+    "Emitted per customer schedule to trigger earthquake briefing generation",
+  inputSchema: z.object({
+    schedule: z.string().optional().describe("Cron expression for this customer's briefing schedule"),
+    customerId: z.string().optional().describe("Customer ID for routing"),
+  }),
+  emitOnly: true,
+});
 
-  return s;
-}
-
-/** SDK-based MCP protocol handler for API Gateway requests. */
-const mcpHandler = createMcpLambdaHandler(createServer);
+const mcpHandler = createMcpLambdaHandler(server);
 
 // ---------------------------------------------------------------------------
 // Event type constant (preserved for tests)
@@ -109,68 +101,6 @@ export const BRIEFING_EVENT_TYPE = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Subscription creation (existing store, used by subscription manager)
-// ---------------------------------------------------------------------------
-
-interface SubscribeInputs {
-  event: WebhookSubscription["eventName"];
-  callbackUrl: string;
-  secret: string;
-  schedule?: string;
-  ttlSeconds: number;
-  customerId?: string;
-}
-
-export async function createSubscription(
-  inputs: SubscribeInputs,
-  now: Date = new Date(),
-) {
-  return createCoreSubscription(
-    {
-      event: inputs.event,
-      callbackUrl: inputs.callbackUrl,
-      secret: inputs.secret,
-      ttlSeconds: inputs.ttlSeconds,
-      customerId: inputs.customerId,
-      serverEndpoint: serverEndpoint("https://scheduler-mcp.earthquake-agent"),
-      domainAttributes:
-        inputs.schedule !== undefined ? { schedule: inputs.schedule } : {},
-    },
-    now,
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Webhook delivery (existing path)
-// ---------------------------------------------------------------------------
-
-export function buildBriefingEvent(
-  data: BriefingTriggerData,
-  now: Date = new Date(),
-): McpEventPayload<BriefingTriggerData> {
-  return buildMcpEvent(
-    EVENT_NAME_BRIEFING_TRIGGER,
-    data,
-    `${data.customerId}:${data.scheduledTime}`,
-    now,
-  );
-}
-
-export async function deliverBriefing(
-  subscription: WebhookSubscription,
-  data: BriefingTriggerData,
-  now: Date = new Date(),
-): Promise<DeliveryOutcome> {
-  const event = buildMcpEvent(
-    EVENT_NAME_BRIEFING_TRIGGER,
-    data,
-    `${data.customerId}:${data.scheduledTime}`,
-    now,
-  );
-  return deliverEvent(subscription, event, now);
-}
-
-// ---------------------------------------------------------------------------
 // Schedule check orchestration (EventBridge trigger)
 // ---------------------------------------------------------------------------
 
@@ -184,38 +114,55 @@ export interface ScheduleCheckSummary {
 export async function runScheduleCheck(
   now: Date = new Date(),
 ): Promise<ScheduleCheckSummary> {
-  const subscriptions = await loadActiveSubscriptions(now.getTime());
-  const due = dueSubscriptions(subscriptions, now);
+  const subscriptions = await subscriptionStore.listByEvent(EVENT_NAME_BRIEFING_TRIGGER);
+  const nowMs = now.getTime();
+  const active = subscriptions.filter((s) => s.expiresAt > nowMs);
 
+  let due = 0;
   let delivered = 0;
   let failed = 0;
-  for (const subscription of due) {
-    if (!subscription.customerId) {
+
+  for (const sub of active) {
+    const schedule = (sub.params as { schedule?: string }).schedule;
+    if (!schedule) continue;
+
+    let matches: boolean;
+    try {
+      matches = cronMatchesAt(schedule, now);
+    } catch {
+      continue;
+    }
+    if (!matches) continue;
+
+    due += 1;
+    const customerId = (sub.params as { customerId?: string }).customerId;
+    if (!customerId) {
       console.warn("Skipping due subscription with no customerId", {
-        subscriptionId: subscription.subscriptionId,
+        subscriptionId: sub.id,
       });
       continue;
     }
 
     const data: BriefingTriggerData = {
       triggerType: "scheduled",
-      customerId: subscription.customerId,
+      customerId,
       scheduledTime: now.toISOString(),
     };
-    const outcome = await deliverBriefing(subscription, data, now);
-    if (outcome.delivered) {
+
+    const ok = await deliverWebhookToSubscription(
+      sub,
+      EVENT_NAME_BRIEFING_TRIGGER,
+      data as unknown as Record<string, unknown>,
+      `${customerId}:${data.scheduledTime}`,
+    );
+    if (ok) {
       delivered += 1;
     } else {
       failed += 1;
     }
   }
 
-  return {
-    activeSubscriptions: subscriptions.length,
-    due: due.length,
-    delivered,
-    failed,
-  };
+  return { activeSubscriptions: active.length, due, delivered, failed };
 }
 
 // ---------------------------------------------------------------------------
@@ -232,11 +179,12 @@ export async function triggerBriefingForCustomer(
   reason: string | undefined,
   now: Date = new Date(),
 ): Promise<ManualTriggerResult> {
-  const subscriptions = await loadActiveSubscriptions(now.getTime());
+  const subscriptions = await subscriptionStore.listByEvent(EVENT_NAME_BRIEFING_TRIGGER);
+  const nowMs = now.getTime();
   const matching = subscriptions.filter(
-    (subscription) =>
-      subscription.eventName === EVENT_NAME_BRIEFING_TRIGGER &&
-      subscription.customerId === customerId,
+    (s) =>
+      s.expiresAt > nowMs &&
+      (s.params as { customerId?: string }).customerId === customerId,
   );
 
   if (matching.length === 0) {
@@ -253,17 +201,19 @@ export async function triggerBriefingForCustomer(
     ...(reason !== undefined ? { reason } : {}),
   };
 
-  let delivered = false;
-  let eventId: string | undefined;
-  for (const subscription of matching) {
-    const outcome = await deliverBriefing(subscription, data, now);
-    eventId ??= outcome.eventId;
-    if (outcome.delivered) {
-      delivered = true;
-    }
+  let anyDelivered = false;
+  const eventId = randomUUID();
+  for (const sub of matching) {
+    const ok = await deliverWebhookToSubscription(
+      sub,
+      EVENT_NAME_BRIEFING_TRIGGER,
+      data as unknown as Record<string, unknown>,
+      `${customerId}:${data.scheduledTime}`,
+    );
+    if (ok) anyDelivered = true;
   }
 
-  return { eventId: eventId ?? randomUUID(), delivered };
+  return { eventId, delivered: anyDelivered };
 }
 
 // ---------------------------------------------------------------------------
