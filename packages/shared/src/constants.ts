@@ -115,14 +115,14 @@ export const SUBSCRIPTION_REFRESH_THRESHOLD_SECONDS = 600; // 10 minutes
  * Default TTL (in seconds) for the per-customer session lock held by the
  * Serverless Agent in DynamoDB. The lock auto-expires if the holder crashes.
  */
-export const DEFAULT_LOCK_TTL_SECONDS = 60;
+export const DEFAULT_LOCK_TTL_SECONDS = 120;
 
 /**
  * Maximum time (in milliseconds) the Serverless Agent will wait to acquire
  * the per-customer session lock before throwing and returning the SQS
  * message to the queue for retry.
  */
-export const LOCK_ACQUISITION_TIMEOUT_MS = 10_000;
+export const LOCK_ACQUISITION_TIMEOUT_MS = 30_000;
 
 /**
  * Tolerance window (in seconds) for Standard Webhooks signature timestamp
