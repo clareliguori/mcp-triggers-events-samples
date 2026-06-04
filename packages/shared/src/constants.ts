@@ -122,7 +122,7 @@ export const DEFAULT_LOCK_TTL_SECONDS = 120;
  * the per-customer session lock before throwing and returning the SQS
  * message to the queue for retry.
  */
-export const LOCK_ACQUISITION_TIMEOUT_MS = 30_000;
+export const LOCK_ACQUISITION_TIMEOUT_MS = 240_000;
 
 /**
  * Tolerance window (in seconds) for Standard Webhooks signature timestamp

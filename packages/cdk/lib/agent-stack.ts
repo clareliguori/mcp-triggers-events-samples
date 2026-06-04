@@ -127,7 +127,7 @@ export class AgentStack extends cdk.Stack {
       memorySize: 512,
       // The agent invokes the LLM per event; give it generous headroom while
       // staying within the queue visibility timeout (Requirement 19.6).
-      timeout: cdk.Duration.seconds(120),
+      timeout: cdk.Duration.seconds(300),
       depsLockFilePath: path.join(
         __dirname,
         "..",
