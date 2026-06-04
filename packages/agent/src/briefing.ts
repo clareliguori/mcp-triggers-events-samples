@@ -85,6 +85,7 @@ import {
   type SessionMetadata,
 } from "./accumulate.js";
 import { signedFetch } from "./sigv4.js";
+import { withTimeout } from "./timeout.js";
 
 /**
  * Whether to clear the conversation history after a briefing is saved. See the
@@ -473,7 +474,11 @@ export async function processBriefingEvent(
   // Inject the trigger message and invoke the LLM with the full conversation
   // history. The LLM synthesizes everything in context and calls save_report
   // (Requirements 4.5, 11.1, 11.4).
-  await agent.invoke(BRIEFING_TRIGGER_MESSAGE);
+  await withTimeout(
+    agent.invoke(BRIEFING_TRIGGER_MESSAGE),
+    90_000,
+    `Bedrock briefing invoke timed out for customer ${customerId}`,
+  );
 
   // The tool callback cannot abort the agent loop, so a missing report id here
   // means either the Data API write failed or the model never called the tool.

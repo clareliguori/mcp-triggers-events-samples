@@ -66,6 +66,8 @@ import {
 } from "@strands-agents/sdk";
 import { S3Storage } from "@strands-agents/sdk/session/s3-storage";
 
+import { withTimeout } from "./timeout.js";
+
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
@@ -573,7 +575,11 @@ export async function processEarthquakeEvent(
   // appends both the user message and the assistant's analysis to the
   // conversation history.
   const userMessage = formatEarthquakeUserMessage(event.data);
-  const result = await agent.invoke(userMessage);
+  const result = await withTimeout(
+    agent.invoke(userMessage),
+    90_000,
+    `Bedrock invoke timed out for customer ${customerId}`,
+  );
 
   // Persist the updated conversation history + metadata to the SDK snapshot
   // key sessions/{customerId}/scopes/agent/agent/snapshots/snapshot_latest.json
