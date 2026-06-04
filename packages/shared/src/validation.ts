@@ -142,7 +142,7 @@ export const earthquakeDetectedDataSchema = z.object({
   coordinates: z.object({
     longitude: z.number().min(-180).max(180),
     latitude: z.number().min(-90).max(90),
-    depth: z.number().min(0),
+    depth: z.number(),
   }),
   time: isoDateTimeSchema,
   tsunami: z.boolean(),
