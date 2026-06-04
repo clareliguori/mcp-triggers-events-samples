@@ -140,8 +140,8 @@ export const earthquakeDetectedDataSchema = z.object({
   magnitude: z.number(),
   place: z.string(),
   coordinates: z.object({
-    longitude: z.number().min(-180).max(180),
-    latitude: z.number().min(-90).max(90),
+    longitude: z.number(),
+    latitude: z.number(),
     depth: z.number(),
   }),
   time: isoDateTimeSchema,
