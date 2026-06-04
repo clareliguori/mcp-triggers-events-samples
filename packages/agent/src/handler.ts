@@ -85,7 +85,7 @@ async function processRoutedEvent(routed: RoutedEvent): Promise<void> {
   // Scenario 8): log and drop without acquiring the lock or touching S3.
   const config = await loadCustomerConfig(customerId);
   if (config === null) {
-    console.warn("Dropping event for customer with no config", {
+    console.log("Dropping event for customer with no config", {
       customerId,
       subscriptionId: routed.subscriptionId,
       eventId: event.eventId,
