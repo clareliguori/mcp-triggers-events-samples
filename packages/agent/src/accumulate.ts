@@ -130,7 +130,7 @@ export const CONVERSATION_WINDOW_SIZE = 500;
  * Sonnet 20240620 model reached end of life, and 3.5 Haiku is marked Legacy
  * with access denied for accounts that have not used it recently.
  */
-const DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0";
+const DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 /**
  * Resolve the sessions bucket name from the environment (set by AgentStack).
