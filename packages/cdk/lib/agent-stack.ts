@@ -152,6 +152,7 @@ export class AgentStack extends cdk.Stack {
     handlerFn.addEventSource(
       new SqsEventSource(eventQueue, {
         batchSize: 1,
+        maxConcurrency: 2,
         reportBatchItemFailures: true,
       }),
     );
