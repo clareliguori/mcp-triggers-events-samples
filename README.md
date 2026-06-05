@@ -4,7 +4,7 @@ A sample that demonstrates the experimental [MCP Triggers & Events extension](ht
 delivery mode, by using MCP events to wake a serverless [Strands](https://strandsagents.com)
 agent.
 
-This sample app does multi-customer earthquake monitoring. Each user
+This sample app provides multi-customer earthquake monitoring. Each user
 configures their own filters (minimum magnitude, geographic region, max depth)
 and briefing schedule. The agent accumulates earthquake observations in its
 conversation history and periodically synthesizes them into a briefing report
@@ -35,25 +35,38 @@ At a high-level, there are three major components:
 
 The system is entirely serverless: The agent has zero running compute until an event arrives:
 webhook events wake the Lambda-hosted Strands agent just long enough to process the event and persist its state.
-Likewise, the MCP servers both MCP servers run as Lambda functions, triggered on EventBridge schedules.
+Likewise, both MCP servers run as Lambda functions, triggered on EventBridge schedules.
 They have no long-running processes — they wake, check for work, deliver webhooks, and
 exit.
 
-<img src="diagrams/1-overview.png" alt="High-level overview" width="900">
-
 The two MCP servers (top and bottom) deliver events to the client application (middle) via
-signed webhooks (solid orange arrows). The client's Subscription Manager
-maintains those subscriptions by periodically calling `events/subscribe` on each
-server (dashed blue arrows). Inside the client, events flow through a Webhook
+signed webhooks (solid orange arrows).
+Inside the client application, events flow through a Webhook
 Receiver → SQS queue → Strands Agent pipeline, with the agent invoking Bedrock
 for LLM analysis and persisting conversation state to S3.
 
+<img src="diagrams/1-overview.png" alt="High-level overview" width="900">
+
 ### Event delivery
 
-<img src="diagrams/2-event-delivery.png" alt="Event delivery flow">
 Each delivery is a signed HTTP POST (Standard Webhooks HMAC-SHA256) with an
 `X-MCP-Subscription-Id` header that the receiver uses to look up the correct
 per-subscription secret and route the event to the right customer.
+
+When the Strands agent handler is invoked with a webhook event, it goes through the following steps:
+1. It translates the MCP server's subscription ID in the event to the application's customer ID.
+1. It acquires a lock on the customer ID, so that multiple agent invocations don't overwrite each other.
+1. It looks up any existing agent session data (including previous conversation history)
+   associated with that customer in S3, and loads it into the Strands agent.
+1. It adds the event as a user message in the conversation history. This could be an earthquake event
+   or a briefing event.
+1. It runs the agent. For earthquake events, the LLM responds with an analysis of the most
+   recent earthquake. For briefing events, the LLM calls an agent tool that stores a briefing report.
+1. It stores the agent's session data back to S3. For briefing events, the session data is cleared,
+   so that future reports don't contain duplicate earthquake data.
+1. It releases the lock on the customer ID.
+
+<img src="diagrams/2-event-delivery.png" alt="Event delivery flow" width="1000">
 
 ### Subscription management
 
@@ -63,16 +76,21 @@ parameters (magnitude, region, depth) for the earthquake feed, an interval
 for the briefing trigger, and a client-generated `whsec_` signing secret for
 each subscription.
 
-<img src="diagrams/3-subscriptions.png" alt="Subscription management" width="500">
+The MCP servers' subscriptions also require periodic refreshing or they expire
+(using TTLs on subscription records in DynamODB). The client's Subscription Manager
+maintains those subscriptions by periodically calling `events/subscribe` on each
+server.
+
+<img src="diagrams/3-subscriptions.png" alt="Subscription management" width="550">
 
 ### Customer webapp
 
-Customers self-service their configuration and view reports through a SvelteKit
+Customers can self-service manage their configuration and view reports through a SvelteKit
 SPA served via CloudFront. The webapp authenticates with Cognito and calls the
 Data API with a JWT to manage config, read reports, and view the agent's
 conversation history.
 
-<img src="diagrams/4-webapp.png" alt="Customer webapp" width="500">
+<img src="diagrams/4-webapp.png" alt="Customer webapp" width="600">
 
 ## Getting started
 

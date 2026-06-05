@@ -74,13 +74,14 @@ with Diagram(
         server_lambda = Lambda("Handler")
 
     with Cluster("MCP Client/Host"):
-        recv = APIGateway("Webhook\nReceiver")
+        recv = APIGateway("Webhook\nReceiver\n(validates HMAC)")
         sqs = SQS("Queue")
         agent = Lambda("Strands Agent")
         lock = Dynamodb("Lock")
         bedrock = Bedrock("LLM")
         sessions = S3("Sessions")
         reports = S3("Reports")
+        config_db = Dynamodb("Customer\nConfig")
         data_api = APIGateway("Data API")
 
     server_lambda >> Edge(
@@ -88,12 +89,13 @@ with Diagram(
         style="bold",
         label="signed POST\n+ X-MCP-Subscription-Id",
     ) >> recv
-    recv >> Edge(label="validates\nHMAC") >> sqs
+    recv >> Edge(label="sends\nmessage") >> sqs
     sqs >> Edge(label="wakes") >> agent
     agent >> lock
-    agent >> Edge(label="invokes") >> bedrock
-    agent >> sessions
+    agent >> Edge() >> bedrock
+    agent >> Edge() >> sessions
     agent >> data_api
+    data_api >> config_db
     data_api >> reports
 
 
@@ -107,18 +109,21 @@ with Diagram(
     outformat="png",
 ):
     with Cluster("Triggers"):
-        stream = Dynamodb("DynamoDB Stream\n(new customer)")
+        stream = Dynamodb("DynamoDB Stream\n(config change)")
         eb = Eventbridge("EventBridge\n(every 5 min)")
 
     sub_mgr = Lambda("Subscription Manager")
 
-    with Cluster("MCP Server 1\nUSGS Feed"):
-        s1 = Lambda("Handler")
+    with Cluster("MCP Server 1"):
+        s1_gw = APIGateway("API Gateway")
+        s1 = Lambda("USGS Feed")
 
-    with Cluster("MCP Server 2\nScheduler"):
-        s2 = Lambda("Handler")
+    with Cluster("MCP Server 2"):
+        s2_gw = APIGateway("API Gateway")
+        s2 = Lambda("Scheduler")
 
     data_api = APIGateway("Data API")
+    config_db = Dynamodb("Customer\nConfig")
 
     stream >> sub_mgr
     eb >> sub_mgr
@@ -126,14 +131,17 @@ with Diagram(
     sub_mgr >> Edge(
         style="dashed", color="steelblue",
         label="events/subscribe\n(filters + whsec_)",
-    ) >> s1
+    ) >> s1_gw
+    s1_gw >> s1
 
     sub_mgr >> Edge(
         style="dashed", color="steelblue",
-        label="events/subscribe\n(schedule + whsec_)",
-    ) >> s2
+        label="events/subscribe\n(interval + whsec_)",
+    ) >> s2_gw
+    s2_gw >> s2
 
     sub_mgr >> Edge(label="reads customers\n& stores subscriptions") >> data_api
+    data_api >> config_db
 
 
 # Diagram 4: Webapp

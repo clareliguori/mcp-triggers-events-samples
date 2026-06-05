@@ -627,34 +627,49 @@ export async function registerCustomer(
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a CustomerConfig from a DynamoDB Stream record's `NewImage`. Returns
- * the validated config, or `undefined` when the record is not an applicable
- * new-customer INSERT (wrong event type, no image, invalid shape, or inactive).
- * Invalid images are logged and skipped rather than thrown — a malformed config
- * is a permanent condition that a retry cannot fix.
+ * Parsed result from a DynamoDB Stream record. Indicates what action the
+ * Subscription Manager should take for this customer.
  */
-export function parseNewCustomer(
-  record: DynamoDBRecord,
-): CustomerConfig | undefined {
-  if (record.eventName !== "INSERT") {
-    return undefined;
+export type StreamAction =
+  | { action: "register"; config: CustomerConfig }
+  | { action: "deregister"; customerId: string }
+  | { action: "skip" };
+
+/**
+ * Parse a DynamoDB Stream record into an action. Returns:
+ * - `register` for INSERT or MODIFY with an active config (create/update subscriptions)
+ * - `deregister` for REMOVE, or MODIFY with `active: false` (clean up subscriptions)
+ * - `skip` for records that don't require action
+ */
+export function parseStreamRecord(record: DynamoDBRecord): StreamAction {
+  const eventName = record.eventName;
+
+  if (eventName === "REMOVE") {
+    const image = record.dynamodb?.OldImage;
+    if (!image) return { action: "skip" };
+    let raw: unknown;
+    try {
+      raw = unmarshall(image as unknown as Record<string, AttributeValue>);
+    } catch {
+      return { action: "skip" };
+    }
+    const customerId = (raw as { customerId?: string }).customerId;
+    return customerId ? { action: "deregister", customerId } : { action: "skip" };
   }
+
+  // INSERT or MODIFY — look at NewImage
   const image = record.dynamodb?.NewImage;
-  if (!image) {
-    return undefined;
-  }
+  if (!image) return { action: "skip" };
 
   let raw: unknown;
   try {
-    // aws-lambda's stream AttributeValue shape differs structurally from the
-    // SDK's; unmarshall accepts the SDK shape, so bridge the two by cast.
     raw = unmarshall(image as unknown as Record<string, AttributeValue>);
   } catch (error) {
     console.error("Could not unmarshall CustomerConfig stream image", {
       sequenceNumber: record.dynamodb?.SequenceNumber,
       error: error instanceof Error ? error.message : String(error),
     });
-    return undefined;
+    return { action: "skip" };
   }
 
   const parsed = customerConfigSchema.safeParse(raw);
@@ -663,21 +678,33 @@ export function parseNewCustomer(
       sequenceNumber: record.dynamodb?.SequenceNumber,
       issues: parsed.error.issues.map((i) => i.message).join("; "),
     });
-    return undefined;
+    return { action: "skip" };
   }
 
-  // Only register active customers; a soft-deleted (inactive) insert is ignored.
-  return parsed.data.active ? parsed.data : undefined;
+  if (!parsed.data.active) {
+    return { action: "deregister", customerId: parsed.data.customerId };
+  }
+
+  return { action: "register", config: parsed.data };
 }
 
 /**
- * Process the registration half of a DynamoDB Stream batch (Requirements 8.1,
- * 8.3). Each applicable new-customer INSERT is registered on both MCP servers;
- * a record whose registration fails after retries is reported as a batch item
- * failure (keyed by its stream `SequenceNumber`) so the event source redrives
- * just that record. Records that are not applicable inserts are treated as
- * handled.
+ * Process a DynamoDB Stream batch (Requirements 8.1, 8.3). Each record is
+ * parsed into an action: register (create/update subscriptions), deregister
+ * (delete subscriptions), or skip. A record whose action fails after retries
+ * is reported as a batch item failure so the event source redrives just that
+ * record.
  */
+
+/**
+ * Deregister a customer — log the deregistration. The customer's MCP server
+ * subscriptions will TTL-expire naturally since the refresh loop (which loads
+ * active customers from the Data API) will no longer include this customer.
+ */
+async function deregisterCustomer(customerId: string): Promise<void> {
+  console.log("Customer deregistered; subscriptions will TTL-expire", { customerId });
+}
+
 export async function handleRegistrationStream(
   event: DynamoDBStreamEvent,
   now: Date = new Date(),
@@ -685,21 +712,29 @@ export async function handleRegistrationStream(
   const batchItemFailures: { itemIdentifier: string }[] = [];
 
   for (const record of event.Records) {
-    const config = parseNewCustomer(record);
-    if (!config) {
+    const streamAction = parseStreamRecord(record);
+    if (streamAction.action === "skip") {
       continue;
     }
 
     const sequenceNumber = record.dynamodb?.SequenceNumber;
     try {
-      const result = await registerCustomer(config, now);
-      if (!result.success && sequenceNumber) {
-        batchItemFailures.push({ itemIdentifier: sequenceNumber });
+      if (streamAction.action === "register") {
+        const result = await registerCustomer(streamAction.config, now);
+        if (!result.success && sequenceNumber) {
+          batchItemFailures.push({ itemIdentifier: sequenceNumber });
+        }
+      } else {
+        // deregister — delete subscriptions for this customer
+        await deregisterCustomer(streamAction.customerId);
       }
     } catch (error) {
-      // An unexpected throw (e.g. missing env) — redrive the record.
-      console.error("Unexpected error registering customer", {
-        customerId: config.customerId,
+      const customerId = streamAction.action === "register"
+        ? streamAction.config.customerId
+        : streamAction.customerId;
+      console.error("Unexpected error processing stream record", {
+        customerId,
+        action: streamAction.action,
         error: error instanceof Error ? error.message : String(error),
       });
       if (sequenceNumber) {

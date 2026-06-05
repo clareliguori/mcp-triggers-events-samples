@@ -289,7 +289,7 @@ describe("handler (DynamoDB Stream trigger)", () => {
     });
   });
 
-  it("returns no batch failures for a non-applicable stream record", async () => {
+  it("processes a MODIFY stream record as a registration", async () => {
     wireRegistrationSuccess();
     const modifyEvent = {
       Records: [
@@ -308,7 +308,7 @@ describe("handler (DynamoDB Stream trigger)", () => {
     const result = await handler(modifyEvent);
 
     expect(result).toEqual({ batchItemFailures: [] });
-    expect(subscribeCalls).toHaveLength(0);
+    expect(subscribeCalls).toHaveLength(2); // one per MCP server
   });
 });
 

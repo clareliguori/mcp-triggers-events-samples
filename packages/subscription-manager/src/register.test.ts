@@ -37,7 +37,7 @@ import {
   type McpSubscribeParams,
   type SubscriptionCreateBody,
   handleRegistrationStream,
-  parseNewCustomer,
+  parseStreamRecord,
   registerCustomer,
   setExistingSubscriptionsLoaderForTesting,
   setMcpSubscriberForTesting,
@@ -341,10 +341,10 @@ describe("registerCustomer idempotency", () => {
 });
 
 // ---------------------------------------------------------------------------
-// parseNewCustomer
+// parseStreamRecord
 // ---------------------------------------------------------------------------
 
-describe("parseNewCustomer", () => {
+describe("parseStreamRecord", () => {
   function streamRecord(
     config: CustomerConfig,
     eventName: "INSERT" | "MODIFY" | "REMOVE" = "INSERT",
@@ -358,33 +358,47 @@ describe("parseNewCustomer", () => {
     } as DynamoDBStreamEvent["Records"][number];
   }
 
-  it("parses a valid active INSERT into a CustomerConfig", () => {
+  it("parses a valid active INSERT into a register action", () => {
     const config = makeConfig();
-    const parsed = parseNewCustomer(streamRecord(config));
-    expect(parsed).toEqual(config);
+    const parsed = parseStreamRecord(streamRecord(config));
+    expect(parsed).toEqual({ action: "register", config });
   });
 
-  it("ignores non-INSERT events", () => {
+  it("parses a MODIFY with active config into a register action", () => {
+    const config = makeConfig();
     expect(
-      parseNewCustomer(streamRecord(makeConfig(), "MODIFY")),
-    ).toBeUndefined();
+      parseStreamRecord(streamRecord(config, "MODIFY")),
+    ).toEqual({ action: "register", config });
   });
 
-  it("ignores a record with no NewImage", () => {
+  it("parses a REMOVE into a deregister action", () => {
+    const config = makeConfig();
+    const record = {
+      eventName: "REMOVE",
+      dynamodb: {
+        SequenceNumber: "seq-1",
+        OldImage: marshall(config) as never,
+      },
+    } as DynamoDBStreamEvent["Records"][number];
+    expect(parseStreamRecord(record)).toEqual({ action: "deregister", customerId: config.customerId });
+  });
+
+  it("skips a record with no NewImage", () => {
     const record = {
       eventName: "INSERT",
       dynamodb: { SequenceNumber: "seq-1" },
     } as DynamoDBStreamEvent["Records"][number];
-    expect(parseNewCustomer(record)).toBeUndefined();
+    expect(parseStreamRecord(record)).toEqual({ action: "skip" });
   });
 
-  it("ignores an inactive (soft-deleted) customer image", () => {
+  it("parses an inactive (soft-deleted) customer as deregister", () => {
+    const config = makeConfig({ active: false });
     expect(
-      parseNewCustomer(streamRecord(makeConfig({ active: false }))),
-    ).toBeUndefined();
+      parseStreamRecord(streamRecord(config)),
+    ).toEqual({ action: "deregister", customerId: config.customerId });
   });
 
-  it("ignores a structurally invalid image", () => {
+  it("skips a structurally invalid image", () => {
     const record = {
       eventName: "INSERT",
       dynamodb: {
@@ -392,7 +406,7 @@ describe("parseNewCustomer", () => {
         NewImage: marshall({ customerId: "not-a-uuid" }) as never,
       },
     } as DynamoDBStreamEvent["Records"][number];
-    expect(parseNewCustomer(record)).toBeUndefined();
+    expect(parseStreamRecord(record)).toEqual({ action: "skip" });
   });
 });
 
@@ -436,14 +450,14 @@ describe("handleRegistrationStream", () => {
     expect(result.batchItemFailures).toEqual([{ itemIdentifier: "seq-1" }]);
   });
 
-  it("ignores non-applicable records without failing the batch", async () => {
+  it("skips non-applicable records without failing the batch", async () => {
     const event = {
       Records: [
         {
-          eventName: "MODIFY",
+          eventName: "INSERT",
           dynamodb: {
             SequenceNumber: "seq-2",
-            NewImage: marshall(makeConfig()) as never,
+            NewImage: marshall({ customerId: "not-a-uuid" }) as never,
           },
         },
       ],
