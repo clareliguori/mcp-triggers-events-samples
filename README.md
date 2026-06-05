@@ -29,11 +29,11 @@ history.
 
 ## Architecture
 
-The system has three components, colored by their MCP role:
+The system has three components, grouped by their MCP role:
 
-- 🟨 **MCP Servers** (orange) — declare event types, manage webhook subscriptions, deliver signed events
-- 🟦 **MCP Client/Host application** (blue) — subscribes to events, receives and processes them, manages customer state
-- ⬜ **External systems** (grey) — USGS API, Amazon Cognito, Amazon Bedrock
+- **MCP Servers** — declare event types, manage webhook subscriptions, deliver signed events
+- **MCP Client/Host application** — subscribes to events, receives and processes them, manages customer state
+- **External systems** — USGS API, Amazon Bedrock
 
 <img src="diagrams/1-overview.png" alt="High-level overview" width="700">
 
