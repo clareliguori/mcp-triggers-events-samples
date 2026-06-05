@@ -7,7 +7,7 @@
  *
  * Dual-triggered:
  * 1. EventBridge (every 1 min) — schedule check: load subscriptions from the
- *    store, evaluate cron, deliver `briefing.trigger` to due customers.
+ *    store, check interval elapsed, deliver `briefing.trigger` to due customers.
  * 2. API Gateway — MCP protocol (via SDK McpServer) + manual trigger REST route.
  */
 
@@ -23,8 +23,6 @@ import {
   deliverWebhookToSubscription,
 } from "@mcp-events/mcp-server-core";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-
-import { cronMatchesAt } from "./scheduler.js";
 
 // ---------------------------------------------------------------------------
 // Re-exports preserved for the existing test surface
@@ -63,7 +61,7 @@ server.registerEvent("briefing.trigger", {
   description:
     "Emitted per customer schedule to trigger earthquake briefing generation",
   inputSchema: z.object({
-    schedule: z.string().optional().describe("Cron expression for this customer's briefing schedule"),
+    intervalHours: z.number().optional().describe("Briefing interval in hours"),
     customerId: z.string().optional().describe("Customer ID for routing"),
   }),
   emitOnly: true,
@@ -82,9 +80,9 @@ export const BRIEFING_EVENT_TYPE = {
   inputSchema: {
     type: "object",
     properties: {
-      schedule: {
-        type: "string",
-        description: "Cron expression for this customer's briefing schedule",
+      intervalHours: {
+        type: "number",
+        description: "Briefing interval in hours",
       },
     },
   },
@@ -118,16 +116,16 @@ export async function runScheduleCheck(
   let failed = 0;
 
   for (const sub of active) {
-    const schedule = (sub.params as { schedule?: string }).schedule;
-    if (!schedule) continue;
+    const intervalHours = (sub.params as { intervalHours?: number }).intervalHours;
+    if (!intervalHours) continue;
 
-    let matches: boolean;
-    try {
-      matches = cronMatchesAt(schedule, now);
-    } catch {
-      continue;
+    // Check if enough time has passed since last delivery
+    const lastDeliveredAt = (sub.params as { lastDeliveredAt?: string }).lastDeliveredAt;
+    const intervalMs = intervalHours * 60 * 60 * 1000;
+    if (lastDeliveredAt) {
+      const elapsed = now.getTime() - new Date(lastDeliveredAt).getTime();
+      if (elapsed < intervalMs) continue;
     }
-    if (!matches) continue;
 
     due += 1;
     const customerId = (sub.params as { customerId?: string }).customerId;
@@ -152,6 +150,9 @@ export async function runScheduleCheck(
     );
     if (ok) {
       delivered += 1;
+      // Update lastDeliveredAt in the subscription params
+      const updatedParams = { ...(sub.params as Record<string, unknown>), lastDeliveredAt: now.toISOString() };
+      await subscriptionStore.put(sub.key, { ...sub, params: updatedParams });
       console.log("Delivered briefing trigger", { customerId, subscriptionId: sub.id });
     } else {
       failed += 1;

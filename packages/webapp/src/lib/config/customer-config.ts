@@ -46,19 +46,19 @@ export const DISPLAY_NAME_MAX_LENGTH = 200;
  * Customers choose from fixed intervals rather than authoring arbitrary cron.
  */
 export const BRIEFING_SCHEDULES = [
-  { cron: "0 */4 * * *", label: "Every 4 hours" },
-  { cron: "0 */8 * * *", label: "Every 8 hours" },
-  { cron: "0 */12 * * *", label: "Every 12 hours" },
-  { cron: "0 9 * * *", label: "Every 24 hours" },
+  { intervalHours: 4, label: "Every 4 hours" },
+  { intervalHours: 8, label: "Every 8 hours" },
+  { intervalHours: 12, label: "Every 12 hours" },
+  { intervalHours: 24, label: "Every 24 hours" },
 ] as const;
 
-export const BRIEFING_SCHEDULE_CRONS = BRIEFING_SCHEDULES.map(
-  (s) => s.cron,
-) as unknown as [string, ...string[]];
+export const BRIEFING_SCHEDULE_INTERVALS = BRIEFING_SCHEDULES.map(
+  (s) => s.intervalHours,
+);
 
-/** Human-friendly label for a schedule cron value. */
-export function scheduleLabel(cron: string): string {
-  return BRIEFING_SCHEDULES.find((s) => s.cron === cron)?.label ?? cron;
+/** Human-friendly label for a schedule interval value. */
+export function scheduleLabel(intervalHours: number): string {
+  return BRIEFING_SCHEDULES.find((s) => s.intervalHours === intervalHours)?.label ?? `Every ${intervalHours} hours`;
 }
 
 /** Human-friendly labels for the region select options. */
@@ -85,7 +85,7 @@ export interface CustomerConfigInput {
   displayName: string;
   subscriptionParams: SubscriptionParams;
   briefingPrompt: string;
-  briefingSchedule: string;
+  briefingSchedule: number;
 }
 
 /** Full CustomerConfig as returned by the Data API. */
@@ -124,7 +124,7 @@ export function emptyConfigForm(): ConfigFormValues {
     region: "",
     maxDepthKm: "",
     briefingPrompt: "",
-    briefingSchedule: "0 9 * * *",
+    briefingSchedule: "8",
   };
 }
 
@@ -144,7 +144,7 @@ export function configToForm(config: CustomerConfig): ConfigFormValues {
         ? String(subscriptionParams.maxDepthKm)
         : "",
     briefingPrompt,
-    briefingSchedule,
+    briefingSchedule: String(briefingSchedule),
   };
 }
 
@@ -208,8 +208,8 @@ export function validateConfigForm(
     errors.briefingPrompt = `Briefing prompt must be 1-${BRIEFING_PROMPT_MAX_LENGTH} characters.`;
   }
 
-  const briefingSchedule = values.briefingSchedule.trim();
-  if (!BRIEFING_SCHEDULE_CRONS.includes(briefingSchedule as (typeof BRIEFING_SCHEDULE_CRONS)[number])) {
+  const briefingSchedule = Number(values.briefingSchedule);
+  if (!BRIEFING_SCHEDULE_INTERVALS.includes(briefingSchedule)) {
     errors.briefingSchedule = "Select a valid briefing schedule.";
   }
 

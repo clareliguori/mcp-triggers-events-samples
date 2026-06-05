@@ -64,7 +64,7 @@ function makeConfig(overrides: Partial<CustomerConfig> = {}): CustomerConfig {
     displayName: "Test Customer",
     subscriptionParams: { minMagnitude: 4.5, region: "pacific" },
     briefingPrompt: "Summarize seismic activity.",
-    briefingSchedule: "0 9 * * *",
+    briefingSchedule: 24,
     active: true,
     createdAt: "2023-12-01T00:00:00.000Z",
     updatedAt: "2023-12-01T00:00:00.000Z",
@@ -106,7 +106,7 @@ function makeSchedulerSub(
     eventName: EVENT_NAME_BRIEFING_TRIGGER,
     callbackUrl: WEBHOOK_URL,
     secret: EXISTING_SECRET,
-    schedule: "0 9 * * *",
+    schedule: 24,
     createdAt: "2023-12-01T00:00:00.000Z",
     expiresAt: isoAfter(300),
     lastRefreshedAt: "2023-12-01T00:00:00.000Z",
@@ -217,9 +217,9 @@ describe("missing-subscription detection", () => {
 });
 
 describe("buildInputSchema", () => {
-  it("maps the cron schedule for the scheduler server", () => {
+  it("maps the interval for the scheduler server", () => {
     expect(buildInputSchema(SCHEDULER_SERVER, makeConfig())).toEqual({
-      schedule: "0 9 * * *",
+      intervalHours: 24,
     });
   });
 
@@ -353,7 +353,7 @@ describe("refreshExpiringSubscriptions", () => {
       (r) => r.eventName === EVENT_NAME_BRIEFING_TRIGGER,
     );
     expect(created).toBeDefined();
-    expect(created?.schedule).toBe("0 9 * * *");
+    expect(created?.schedule).toBe(24);
     expect(created?.secret.startsWith(WHSEC_SECRET_PREFIX)).toBe(true);
   });
 

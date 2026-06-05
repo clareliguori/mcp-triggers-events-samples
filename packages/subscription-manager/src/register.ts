@@ -448,7 +448,7 @@ function buildTargets(config: CustomerConfig): SubscriptionTarget[] {
       server: "scheduler",
       serverUrl: schedulerMcpUrl(),
       eventName: EVENT_NAME_BRIEFING_TRIGGER,
-      inputSchema: { schedule: config.briefingSchedule },
+      inputSchema: { intervalHours: config.briefingSchedule },
       record: { schedule: config.briefingSchedule },
     },
   ];

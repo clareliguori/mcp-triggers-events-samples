@@ -23,8 +23,8 @@ The system consists of:
 
 At a high-level, there are three major components:
 
-1. **MCP Server 1 — USGS Earthquake Feed** polls the USGS GeoJSON feed, detects
-  new earthquakes with cursor-based deduplication, and delivers each one as an
+1. **MCP Server 1 — USGS Earthquake Feed** polls the USGS GeoJSON feed every 5 minutes,
+  detects new earthquakes with cursor-based deduplication, and delivers each one as an
   `earthquake.detected` event to every subscription whose filter matches.
 1. **MCP Server 2 — Message Scheduler** fires a `briefing.trigger` event per
   customer on that customer's cron schedule (or on demand).

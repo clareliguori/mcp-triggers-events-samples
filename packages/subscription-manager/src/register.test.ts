@@ -64,7 +64,7 @@ function makeConfig(overrides: Partial<CustomerConfig> = {}): CustomerConfig {
     displayName: "Test Customer",
     subscriptionParams: { minMagnitude: 4.5, region: "pacific" },
     briefingPrompt: "Summarize the day's seismic activity.",
-    briefingSchedule: "0 9 * * *",
+    briefingSchedule: 24,
     active: true,
     createdAt: "2024-02-01T00:00:00.000Z",
     updatedAt: "2024-02-01T00:00:00.000Z",
@@ -168,7 +168,7 @@ describe("registerCustomer", () => {
 
     expect(scheduler.serverUrl).toBe(SCHEDULER_MCP_URL);
     expect(scheduler.params.event).toBe("briefing.trigger");
-    expect(scheduler.params.inputSchema).toEqual({ schedule: "0 9 * * *" });
+    expect(scheduler.params.inputSchema).toEqual({ intervalHours: 24 });
     expect(
       whsecSecretSchema.safeParse(scheduler.params.delivery.secret).success,
     ).toBe(true);
@@ -200,7 +200,7 @@ describe("registerCustomer", () => {
     const schedulerStore = storeCalls.find(
       (c) => c.body.eventName === "briefing.trigger",
     )!;
-    expect(schedulerStore.body.schedule).toBe("0 9 * * *");
+    expect(schedulerStore.body.schedule).toBe(24);
     expect(schedulerStore.body.secret).toBe(scheduler.params.delivery.secret);
   });
 

@@ -38,7 +38,7 @@ export interface CustomerConfig {
   /** Custom system prompt used when generating briefing reports. */
   briefingPrompt: string;
   /** Cron expression for this customer's briefing trigger schedule. */
-  briefingSchedule: string;
+  briefingSchedule: number;
   /** Whether this customer's subscriptions are active. */
   active: boolean;
   /** ISO 8601. */
@@ -177,7 +177,7 @@ export interface WebhookSubscription {
   /** Customer-specific filter params (set for MCP Server 1). */
   filterParams?: SubscriptionParams;
   /** Customer's cron schedule (set for MCP Server 2). */
-  schedule?: string;
+  schedule?: number;
   /** ISO 8601. */
   createdAt: string;
   /** ISO 8601 TTL. */
@@ -331,8 +331,8 @@ export interface SubscribeInputSchema {
   region?: Region;
   /** For `earthquake.detected` subscriptions. */
   maxDepthKm?: number;
-  /** For `briefing.trigger` subscriptions (cron). */
-  schedule?: string;
+  /** For `briefing.trigger` subscriptions (interval in hours). */
+  intervalHours?: number;
 }
 
 // ---------------------------------------------------------------------------

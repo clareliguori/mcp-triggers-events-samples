@@ -56,7 +56,7 @@ export function customerConfigInput(
     briefingPrompt:
       overrides.briefingPrompt ??
       "You are an earthquake monitoring assistant. Summarize recent seismic activity.",
-    briefingSchedule: overrides.briefingSchedule ?? "0 9 * * *",
+    briefingSchedule: overrides.briefingSchedule ?? 24,
   };
 }
 

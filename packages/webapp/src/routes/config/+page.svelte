@@ -284,11 +284,11 @@
             <Label for="briefingSchedule">Briefing schedule</Label>
             <Select.Root type="single" bind:value={form.briefingSchedule}>
               <Select.Trigger id="briefingSchedule" class="w-full">
-                {scheduleLabel(form.briefingSchedule)}
+                {scheduleLabel(Number(form.briefingSchedule))}
               </Select.Trigger>
               <Select.Content>
-                {#each BRIEFING_SCHEDULES as schedule (schedule.cron)}
-                  <Select.Item value={schedule.cron} label={schedule.label}>
+                {#each BRIEFING_SCHEDULES as schedule (schedule.intervalHours)}
+                  <Select.Item value={String(schedule.intervalHours)} label={schedule.label}>
                     {schedule.label}
                   </Select.Item>
                 {/each}

@@ -23,7 +23,7 @@ function validForm(
     region: "pacific",
     maxDepthKm: "70",
     briefingPrompt: "Summarize notable seismic activity for the ops team.",
-    briefingSchedule: "0 9 * * *",
+    briefingSchedule: 24,
     ...overrides,
   };
 }
@@ -41,7 +41,7 @@ describe("validateConfigForm — happy path", () => {
           maxDepthKm: 70,
         },
         briefingPrompt: "Summarize notable seismic activity for the ops team.",
-        briefingSchedule: "0 9 * * *",
+        briefingSchedule: 24,
       });
     }
   });
@@ -165,7 +165,7 @@ describe("configToForm / emptyConfigForm", () => {
       displayName: "Ops",
       subscriptionParams: {},
       briefingPrompt: "prompt",
-      briefingSchedule: "0 9 * * *",
+      briefingSchedule: 24,
       active: true,
       createdAt: "2024-01-01T00:00:00.000Z",
       updatedAt: "2024-01-01T00:00:00.000Z",

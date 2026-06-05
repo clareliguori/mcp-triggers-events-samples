@@ -44,7 +44,7 @@ function validInput(): CustomerConfigInput {
     displayName: "Acme Seismology",
     subscriptionParams: { minMagnitude: 4.5, region: "pacific" },
     briefingPrompt: "Summarize notable earthquakes for the Pacific region.",
-    briefingSchedule: "0 */8 * * *",
+    briefingSchedule: 8,
   };
 }
 
@@ -158,7 +158,7 @@ describe("putConfig", () => {
   });
 
   it("returns 400 when the body fails validation", async () => {
-    const bad = { ...validInput(), briefingSchedule: "not a cron" };
+    const bad = { ...validInput(), briefingSchedule: -1 };
 
     await expect(
       putConfig(makeContext({ method: "PUT", body: bad })),

@@ -16,13 +16,11 @@ import { describe, expect, it } from "vitest";
 import {
   BRIEFING_PROMPT_MAX_LENGTH,
   BRIEFING_PROMPT_MIN_LENGTH,
-  BRIEFING_SCHEDULE_CRONS,
-  CRON_REGEX,
+  BRIEFING_SCHEDULE_INTERVALS,
   MAX_MAGNITUDE,
   MIN_MAGNITUDE,
   REGIONS,
   UUID_V4_REGEX,
-  cronExpressionSchema,
   customerConfigInputSchema,
   customerConfigSchema,
   subscriptionParamsSchema,
@@ -62,26 +60,6 @@ const validBriefingPromptArb = fc.string({
 
 const validDisplayNameArb = fc.string({ minLength: 1, maxLength: 200 });
 
-// Build cron expressions that match CRON_REGEX structurally. Each field is a
-// comma-separated list of one or more atoms; atoms are wildcard, single
-// numeric value, range, wildcard-step, or value-step.
-const cronAtomArb = fc.oneof(
-  fc.constant("*"),
-  fc.integer({ min: 0, max: 59 }).map((n) => `${n}`),
-  fc
-    .tuple(fc.integer({ min: 0, max: 59 }), fc.integer({ min: 0, max: 59 }))
-    .map(([a, b]) => `${Math.min(a, b)}-${Math.max(a, b)}`),
-  fc.integer({ min: 1, max: 59 }).map((n) => `*/${n}`),
-  fc
-    .tuple(fc.integer({ min: 0, max: 59 }), fc.integer({ min: 1, max: 59 }))
-    .map(([a, b]) => `${a}/${b}`),
-);
-const cronFieldArb = fc
-  .array(cronAtomArb, { minLength: 1, maxLength: 4 })
-  .map((atoms) => atoms.join(","));
-const validCronArb = fc
-  .tuple(cronFieldArb, cronFieldArb, cronFieldArb, cronFieldArb, cronFieldArb)
-  .map((fields) => fields.join(" "));
 
 const validSubscriptionParamsArb = fc.record(
   {
@@ -96,7 +74,7 @@ const validCustomerConfigInputArb = fc.record({
   displayName: validDisplayNameArb,
   subscriptionParams: validSubscriptionParamsArb,
   briefingPrompt: validBriefingPromptArb,
-  briefingSchedule: fc.constantFrom(...BRIEFING_SCHEDULE_CRONS),
+  briefingSchedule: fc.constantFrom(...BRIEFING_SCHEDULE_INTERVALS),
 });
 
 const validCustomerConfigArb = fc.record({
@@ -104,7 +82,7 @@ const validCustomerConfigArb = fc.record({
   displayName: validDisplayNameArb,
   subscriptionParams: validSubscriptionParamsArb,
   briefingPrompt: validBriefingPromptArb,
-  briefingSchedule: fc.constantFrom(...BRIEFING_SCHEDULE_CRONS),
+  briefingSchedule: fc.constantFrom(...BRIEFING_SCHEDULE_INTERVALS),
   active: fc.boolean(),
   createdAt: fc.date().map((d) => d.toISOString()),
   updatedAt: fc.date().map((d) => d.toISOString()),
@@ -136,8 +114,6 @@ const invalidBriefingPromptArb = fc.oneof(
   }),
 );
 
-/** Strings that do not match CRON_REGEX structurally. */
-const invalidCronArb = fc.string().filter((s) => !CRON_REGEX.test(s));
 
 // ---------------------------------------------------------------------------
 // Property tests
@@ -292,27 +268,18 @@ describe("Property 12: Input Validation Correctness", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 16.5 — briefingSchedule must be a valid 5-field cron expression
+  // 16.5 — briefingSchedule must be a valid interval in hours
   // -------------------------------------------------------------------------
 
-  it("16.5: cronExpressionSchema accepts structurally valid 5-field cron expressions", () => {
-    fc.assert(
-      fc.property(validCronArb, (cron) => {
-        expect(cronExpressionSchema.safeParse(cron).success).toBe(true);
-      }),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it("16.5: customerConfigInputSchema rejects malformed briefingSchedule", () => {
+  it("16.5: customerConfigInputSchema rejects invalid briefingSchedule", () => {
     fc.assert(
       fc.property(
         validCustomerConfigInputArb,
-        invalidCronArb,
-        (config, badCron) => {
+        fc.oneof(fc.double(), fc.constant(-1), fc.constant(0), fc.constant(200)),
+        (config, badInterval) => {
           const result = customerConfigInputSchema.safeParse({
             ...config,
-            briefingSchedule: badCron,
+            briefingSchedule: badInterval,
           });
           expect(result.success).toBe(false);
         },
@@ -357,8 +324,8 @@ describe("Property 12: Input Validation Correctness", () => {
         value: invalidBriefingPromptArb,
       }),
       fc.record({
-        kind: fc.constant("cron" as const),
-        value: invalidCronArb,
+        kind: fc.constant("interval" as const),
+        value: fc.oneof(fc.double(), fc.constant(-1), fc.constant(0), fc.constant(200)),
       }),
     );
 
@@ -387,7 +354,7 @@ describe("Property 12: Input Validation Correctness", () => {
           case "prompt":
             mutated = { ...base, briefingPrompt: v.value };
             break;
-          case "cron":
+          case "interval":
             mutated = { ...base, briefingSchedule: v.value };
             break;
         }

@@ -12,8 +12,6 @@ import { z } from "zod";
 import {
   BRIEFING_PROMPT_MAX_LENGTH,
   BRIEFING_PROMPT_MIN_LENGTH,
-  BRIEFING_SCHEDULE_CRONS,
-  CRON_REGEX,
   EVENT_NAME_BRIEFING_TRIGGER,
   EVENT_NAME_EARTHQUAKE_DETECTED,
   MAX_MAGNITUDE,
@@ -55,10 +53,12 @@ export const isoDateTimeSchema = z
     message: "must be a valid ISO 8601 datetime",
   });
 
-/** Cron expression (5 space-separated fields). Validates Requirement 16.5. */
-export const cronExpressionSchema = z
-  .string()
-  .regex(CRON_REGEX, "must be a valid 5-field cron expression");
+/** Briefing interval in hours. Must be a positive integer. */
+export const briefingIntervalSchema = z
+  .number()
+  .int()
+  .min(1, "interval must be at least 1 hour")
+  .max(168, "interval must be at most 168 hours (1 week)");
 
 /** Region enum. Validates Requirement 16.3. */
 export const regionSchema = z.enum(REGIONS);
@@ -119,7 +119,7 @@ export const customerConfigInputSchema = z.object({
     .string()
     .min(BRIEFING_PROMPT_MIN_LENGTH)
     .max(BRIEFING_PROMPT_MAX_LENGTH),
-  briefingSchedule: z.enum(BRIEFING_SCHEDULE_CRONS),
+  briefingSchedule: z.number().int().min(1).max(168),
 });
 
 /** Full CustomerConfig as stored in DynamoDB. */
@@ -188,7 +188,7 @@ export const subscribeInputSchema = z.object({
   minMagnitude: z.number().min(MIN_MAGNITUDE).max(MAX_MAGNITUDE).optional(),
   region: regionSchema.optional(),
   maxDepthKm: z.number().positive().optional(),
-  schedule: cronExpressionSchema.optional(),
+  schedule: z.number().int().min(1).optional(),
 });
 
 export const subscribeParamsSchema = z.object({
@@ -235,7 +235,7 @@ export const webhookSubscriptionSchema = z.object({
    */
   encryptedSecret: z.string().min(1),
   filterParams: subscriptionParamsSchema.optional(),
-  schedule: cronExpressionSchema.optional(),
+  schedule: z.number().int().min(1).optional(),
   createdAt: isoDateTimeSchema,
   expiresAt: isoDateTimeSchema,
   lastRefreshedAt: isoDateTimeSchema,

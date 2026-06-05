@@ -65,40 +65,21 @@ export const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Allowed briefing schedule options. Each entry maps a cron expression to a
- * human-readable label. Customers choose from these fixed intervals rather
- * than authoring arbitrary cron expressions (which are overpowered for the
- * use case and error-prone). The scheduler server evaluates the cron;
- * validation ensures only these values are accepted.
+ * Allowed briefing schedule options. Each entry maps an interval (in hours)
+ * to a human-readable label. The scheduler server fires a briefing trigger
+ * when `now - lastDeliveredAt >= intervalHours` for a subscription.
  */
 export const BRIEFING_SCHEDULES = [
-  { cron: "0 */4 * * *", label: "Every 4 hours" },
-  { cron: "0 */8 * * *", label: "Every 8 hours" },
-  { cron: "0 */12 * * *", label: "Every 12 hours" },
-  { cron: "0 9 * * *", label: "Every 24 hours" },
+  { intervalHours: 4, label: "Every 4 hours" },
+  { intervalHours: 8, label: "Every 8 hours" },
+  { intervalHours: 12, label: "Every 12 hours" },
+  { intervalHours: 24, label: "Every 24 hours" },
 ] as const;
 
-/** The allowed cron values extracted for validation. */
-export const BRIEFING_SCHEDULE_CRONS = BRIEFING_SCHEDULES.map(
-  (s) => s.cron,
-) as unknown as [string, ...string[]];
-
-/**
- * Validates a 5-field cron expression with the form:
- *   `minute hour day-of-month month day-of-week`
- *
- * Each field accepts wildcards (asterisk), single values (`5`), ranges
- * (`1-5`), step values (`* / 5`, `0/15`), and comma-separated lists of any
- * of the above (`1,5,9-11`).
- *
- * Numeric ranges are not validated by this regex (e.g. `99 99 99 99 99`
- * passes structurally). Stricter per-field validation can be added by
- * MCP Server 2 when it actually evaluates the schedule.
- *
- * Validates Requirement 16.5.
- */
-const CRON_FIELD = String.raw`(\*|\d+|\d+-\d+|\*\/\d+|\d+\/\d+)(,(\*|\d+|\d+-\d+|\*\/\d+|\d+\/\d+))*`;
-export const CRON_REGEX = new RegExp(`^${CRON_FIELD}( ${CRON_FIELD}){4}$`);
+/** The allowed interval values extracted for validation. */
+export const BRIEFING_SCHEDULE_INTERVALS = BRIEFING_SCHEDULES.map(
+  (s) => s.intervalHours,
+) as unknown as [number, ...number[]];
 
 /**
  * Default TTL (in seconds) for an MCP `events/subscribe` subscription.

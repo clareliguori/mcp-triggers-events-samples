@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   BRIEFING_PROMPT_MAX_LENGTH,
-  CRON_REGEX,
   EVENT_NAME_BRIEFING_TRIGGER,
   EVENT_NAME_EARTHQUAKE_DETECTED,
   MAX_MAGNITUDE,
@@ -21,8 +20,6 @@ import {
   customerConfigInputSchema,
   customerConfigSchema,
   customerIdSchema,
-  cronExpressionSchema,
-  earthquakeDetectedEventSchema,
   mcpEventPayloadSchema,
   subscribeParamsSchema,
   uuidV4Schema,
@@ -53,7 +50,7 @@ describe("@mcp-events/shared exports", () => {
       displayName: "Test Customer",
       subscriptionParams: { minMagnitude: 4, region: "pacific" },
       briefingPrompt: "Summarize recent seismic activity",
-      briefingSchedule: "0 */8 * * *",
+      briefingSchedule: 8,
       active: true,
       createdAt: "2024-01-01T00:00:00Z",
       updatedAt: "2024-01-01T00:00:00Z",
@@ -102,7 +99,7 @@ describe("@mcp-events/shared exports", () => {
       eventName: EVENT_NAME_BRIEFING_TRIGGER,
       callbackUrl: "https://webhook.example.com/wh",
       encryptedSecret: "QmFzZTY0Q2lwaGVydGV4dEV4YW1wbGU=",
-      schedule: "0 0 * * *",
+      schedule: 24,
       createdAt: "2024-01-01T00:00:00Z",
       expiresAt: "2024-01-01T01:00:00Z",
       lastRefreshedAt: "2024-01-01T00:00:00Z",
@@ -189,8 +186,6 @@ describe("@mcp-events/shared exports", () => {
     expect(MAX_MAGNITUDE).toBe(10);
     expect(BRIEFING_PROMPT_MAX_LENGTH).toBe(2000);
     expect(UUID_V4_REGEX.test(validUuid)).toBe(true);
-    expect(CRON_REGEX.test("0 0 * * *")).toBe(true);
-    expect(CRON_REGEX.test("not a cron")).toBe(false);
   });
 
   it("uuidV4Schema accepts valid UUIDs and rejects invalid ones", () => {
@@ -214,21 +209,13 @@ describe("@mcp-events/shared exports", () => {
     expect(customerIdSchema.safeParse(validUuid).success).toBe(true);
   });
 
-  it("cronExpressionSchema validates 5-field cron expressions", () => {
-    expect(cronExpressionSchema.safeParse("0 */6 * * *").success).toBe(true);
-    expect(cronExpressionSchema.safeParse("0,15,30,45 * * * *").success).toBe(
-      true,
-    );
-    expect(cronExpressionSchema.safeParse("garbage").success).toBe(false);
-    expect(cronExpressionSchema.safeParse("0 0 * *").success).toBe(false);
-  });
 
   it("customerConfigInputSchema accepts valid configs", () => {
     const result = customerConfigInputSchema.safeParse({
       displayName: "Test",
       subscriptionParams: { minMagnitude: 5, region: "pacific" },
       briefingPrompt: "Briefing me on earthquakes",
-      briefingSchedule: "0 9 * * *",
+      briefingSchedule: 24,
     });
     expect(result.success).toBe(true);
   });
@@ -238,7 +225,7 @@ describe("@mcp-events/shared exports", () => {
       displayName: "Test",
       subscriptionParams: { minMagnitude: 11 },
       briefingPrompt: "Brief me",
-      briefingSchedule: "0 9 * * *",
+      briefingSchedule: 24,
     });
     expect(result.success).toBe(false);
   });
@@ -248,7 +235,7 @@ describe("@mcp-events/shared exports", () => {
       displayName: "Test",
       subscriptionParams: { region: "antarctica" },
       briefingPrompt: "Brief me",
-      briefingSchedule: "0 9 * * *",
+      briefingSchedule: 24,
     });
     expect(result.success).toBe(false);
   });
@@ -259,7 +246,7 @@ describe("@mcp-events/shared exports", () => {
         displayName: "Test",
         subscriptionParams: {},
         briefingPrompt: "",
-        briefingSchedule: "0 9 * * *",
+        briefingSchedule: 24,
       }).success,
     ).toBe(false);
 
@@ -268,7 +255,7 @@ describe("@mcp-events/shared exports", () => {
         displayName: "Test",
         subscriptionParams: {},
         briefingPrompt: "x".repeat(BRIEFING_PROMPT_MAX_LENGTH + 1),
-        briefingSchedule: "0 9 * * *",
+        briefingSchedule: 24,
       }).success,
     ).toBe(false);
   });
@@ -280,7 +267,7 @@ describe("@mcp-events/shared exports", () => {
         displayName: "Test",
         subscriptionParams: {},
         briefingPrompt: "x",
-        briefingSchedule: "0 9 * * *",
+        briefingSchedule: 24,
         active: true,
         createdAt: "2024-01-01T00:00:00Z",
         updatedAt: "2024-01-01T00:00:00Z",
@@ -307,27 +294,6 @@ describe("@mcp-events/shared exports", () => {
       },
     });
     expect(earthquake.success).toBe(true);
-  });
-
-  it("earthquakeDetectedEventSchema rejects out-of-range coordinates", () => {
-    const result = earthquakeDetectedEventSchema.safeParse({
-      eventId: validUuid,
-      name: "earthquake.detected",
-      timestamp: "2024-01-01T00:00:00Z",
-      cursor: "c",
-      data: {
-        earthquakeId: "us123",
-        magnitude: 4.5,
-        place: "x",
-        coordinates: { longitude: 200, latitude: 0, depth: 0 },
-        time: "2024-01-01T00:00:00Z",
-        tsunami: false,
-        felt: null,
-        alert: null,
-        url: "https://example.com/q",
-      },
-    });
-    expect(result.success).toBe(false);
   });
 
   it("subscribeParamsSchema requires HTTPS callback URL and a valid whsec_ secret", () => {

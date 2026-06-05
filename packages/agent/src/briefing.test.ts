@@ -86,7 +86,7 @@ function makeConfig(overrides: Partial<CustomerConfig> = {}): CustomerConfig {
     displayName: "Test Customer",
     subscriptionParams: { minMagnitude: 2.5 },
     briefingPrompt: "You are a seismologist. Summarize earthquakes concisely.",
-    briefingSchedule: "0 9 * * *",
+    briefingSchedule: 24,
     active: true,
     createdAt: "2024-01-01T00:00:00.000Z",
     updatedAt: "2024-01-01T00:00:00.000Z",

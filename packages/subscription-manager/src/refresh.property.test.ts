@@ -111,7 +111,7 @@ function makeSubscription(
     eventName,
     callbackUrl: "https://webhook.example.test/webhook",
     secret: SECRET,
-    ...(isEarthquake ? { filterParams } : { schedule: "0 9 * * *" }),
+    ...(isEarthquake ? { filterParams } : { schedule: 24 }),
     createdAt: "2024-01-01T00:00:00.000Z",
     expiresAt,
     lastRefreshedAt: "2024-01-01T00:00:00.000Z",

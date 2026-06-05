@@ -197,7 +197,7 @@ export function buildInputSchema(
   config: CustomerConfig,
 ): SubscribeParams["inputSchema"] {
   if (server.eventName === EVENT_NAME_BRIEFING_TRIGGER) {
-    return { schedule: config.briefingSchedule };
+    return { intervalHours: config.briefingSchedule };
   }
   const params: SubscriptionParams = config.subscriptionParams ?? {};
   const inputSchema: NonNullable<SubscribeParams["inputSchema"]> = {};
@@ -799,7 +799,7 @@ const defaultUpsertSubscriptionRecord: RefreshDependencies["upsertSubscriptionRe
     )}`;
     const update: SubscriptionRecordUpdate & {
       filterParams?: SubscriptionParams;
-      schedule?: string;
+      schedule?: number;
     } = {
       expiresAt: record.expiresAt,
       lastRefreshedAt: record.lastRefreshedAt,

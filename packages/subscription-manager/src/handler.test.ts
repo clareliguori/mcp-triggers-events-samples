@@ -67,7 +67,7 @@ function makeConfig(overrides: Partial<CustomerConfig> = {}): CustomerConfig {
     displayName: "Test Customer",
     subscriptionParams: { minMagnitude: 4.5, region: "pacific" },
     briefingPrompt: "Summarize the day's seismic activity.",
-    briefingSchedule: "0 9 * * *",
+    briefingSchedule: 24,
     active: true,
     createdAt: "2024-02-01T00:00:00.000Z",
     updatedAt: "2024-02-01T00:00:00.000Z",
@@ -169,7 +169,7 @@ function makeRefreshDependencies(): RefreshDependencies {
     subscriptionId: "55555555-5555-4555-8555-555555555555",
     serverEndpoint: SCHEDULER_MCP_URL,
     eventName: "briefing.trigger",
-    schedule: "0 9 * * *",
+    schedule: 24,
     filterParams: undefined,
     expiresAt: "2999-01-01T00:00:00.000Z",
   };
