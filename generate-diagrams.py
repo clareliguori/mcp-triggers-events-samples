@@ -4,12 +4,11 @@ from diagrams.aws.compute import Lambda
 from diagrams.aws.database import Dynamodb
 from diagrams.aws.integration import SimpleQueueServiceSqs as SQS
 from diagrams.aws.integration import Eventbridge
-from diagrams.aws.network import APIGateway
+from diagrams.aws.network import APIGateway, CloudFront
 from diagrams.aws.storage import SimpleStorageServiceS3 as S3
 from diagrams.aws.ml import Bedrock
 from diagrams.aws.security import Cognito
 from diagrams.aws.general import General
-from diagrams.custom import Custom
 import os
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -24,22 +23,22 @@ graph_attr = {
     "ranksep": "1.0",
 }
 
-# Diagram 1: High-level overview
+# Diagram 1: High-level overview (simplified - no subscription manager)
 with Diagram(
-    "MCP Events - High-Level Overview",
+    "",
     filename=f"{outdir}/1-overview",
     show=False,
     direction="LR",
     graph_attr=graph_attr,
     outformat="png",
 ):
-    usgs = General("USGS API")
-
     with Cluster("MCP Server 1\nUSGS Earthquake Feed"):
+        usgs = General("USGS API")
         s1_lambda = Lambda("Handler")
         s1_ddb = Dynamodb("Subscriptions")
 
     with Cluster("MCP Server 2\nMessage Scheduler"):
+        s2_eb = Eventbridge("EventBridge\n(every 1 min)")
         s2_lambda = Lambda("Handler")
         s2_ddb = Dynamodb("Subscriptions")
 
@@ -49,47 +48,41 @@ with Diagram(
         agent = Lambda("Strands Agent")
         bedrock = Bedrock("LLM")
         sessions = S3("Sessions")
-        sub_mgr = Lambda("Subscription\nManager")
 
-    usgs >> Edge(style="dashed", label="polls") >> s1_lambda
+    usgs >> Edge(style="dashed") >> s1_lambda
     s1_lambda >> s1_ddb
+    s2_eb >> s2_lambda >> s2_ddb
 
     s1_lambda >> Edge(color="darkorange", style="bold") >> receiver
     s2_lambda >> Edge(color="darkorange", style="bold") >> receiver
-    s2_lambda >> s2_ddb
-
-    sub_mgr >> Edge(style="dashed", color="steelblue") >> s1_lambda
-    sub_mgr >> Edge(style="dashed", color="steelblue") >> s2_lambda
 
     receiver >> sqs >> agent
     agent >> bedrock
     agent >> sessions
 
 
-# Diagram 2: Event delivery flow
+# Diagram 2: Event delivery flow (with lock, reports, Data API)
 with Diagram(
-    "Event Delivery Flow",
+    "",
     filename=f"{outdir}/2-event-delivery",
     show=False,
     direction="LR",
-    graph_attr={**graph_attr, "ranksep": "1.2"},
+    graph_attr={**graph_attr, "ranksep": "1.0"},
     outformat="png",
 ):
-    eb = Eventbridge("EventBridge\n(schedule)")
-
     with Cluster("MCP Server"):
         server_lambda = Lambda("Handler")
-        server_ddb = Dynamodb("Subscriptions")
 
     with Cluster("MCP Client/Host"):
         recv = APIGateway("Webhook\nReceiver")
         sqs = SQS("Queue")
         agent = Lambda("Strands Agent")
+        lock = Dynamodb("Lock")
         bedrock = Bedrock("LLM")
-        s3 = S3("Session\n(S3)")
+        sessions = S3("Sessions")
+        reports = S3("Reports")
+        data_api = APIGateway("Data API")
 
-    eb >> Edge(label="triggers") >> server_lambda
-    server_lambda >> server_ddb
     server_lambda >> Edge(
         color="darkorange",
         style="bold",
@@ -97,13 +90,16 @@ with Diagram(
     ) >> recv
     recv >> Edge(label="validates\nHMAC") >> sqs
     sqs >> Edge(label="wakes") >> agent
+    agent >> lock
     agent >> Edge(label="invokes") >> bedrock
-    agent >> Edge(label="persists") >> s3
+    agent >> sessions
+    agent >> data_api
+    data_api >> reports
 
 
-# Diagram 3: Subscription management
+# Diagram 3: Subscription management (reads from Data API too)
 with Diagram(
-    "Subscription Management",
+    "",
     filename=f"{outdir}/3-subscriptions",
     show=False,
     direction="TB",
@@ -122,7 +118,7 @@ with Diagram(
     with Cluster("MCP Server 2\nScheduler"):
         s2 = Lambda("Handler")
 
-    data_api = APIGateway("Data API\n(stores records)")
+    data_api = APIGateway("Data API")
 
     stream >> sub_mgr
     eb >> sub_mgr
@@ -137,4 +133,33 @@ with Diagram(
         label="events/subscribe\n(schedule + whsec_)",
     ) >> s2
 
-    sub_mgr >> Edge(label="stores") >> data_api
+    sub_mgr >> Edge(label="reads customers\n& stores subscriptions") >> data_api
+
+
+# Diagram 4: Webapp
+with Diagram(
+    "",
+    filename=f"{outdir}/4-webapp",
+    show=False,
+    direction="LR",
+    graph_attr=graph_attr,
+    outformat="png",
+):
+    with Cluster("Frontend"):
+        cf = CloudFront("CloudFront")
+        spa = S3("SvelteKit SPA")
+
+    cognito = Cognito("Cognito\n(auth)")
+
+    with Cluster("Backend"):
+        data_api = APIGateway("Data API")
+        config_db = Dynamodb("Customer\nConfig")
+        reports = S3("Reports")
+        sessions = S3("Sessions\n(read-only)")
+
+    cf >> spa
+    cf >> Edge(label="Cognito JWT") >> data_api
+    cognito >> Edge(style="dashed") >> cf
+    data_api >> config_db
+    data_api >> reports
+    data_api >> sessions
