@@ -54,12 +54,12 @@ with Diagram(
     usgs >> Edge(style="dashed", label="polls") >> s1_lambda
     s1_lambda >> s1_ddb
 
-    s1_lambda >> Edge(color="darkorange", style="bold", label="earthquake.detected") >> receiver
-    s2_lambda >> Edge(color="darkorange", style="bold", label="briefing.trigger") >> receiver
+    s1_lambda >> Edge(color="darkorange", style="bold") >> receiver
+    s2_lambda >> Edge(color="darkorange", style="bold") >> receiver
     s2_lambda >> s2_ddb
 
-    sub_mgr >> Edge(style="dashed", color="steelblue", label="events/subscribe") >> s1_lambda
-    sub_mgr >> Edge(style="dashed", color="steelblue", label="events/subscribe") >> s2_lambda
+    sub_mgr >> Edge(style="dashed", color="steelblue") >> s1_lambda
+    sub_mgr >> Edge(style="dashed", color="steelblue") >> s2_lambda
 
     receiver >> sqs >> agent
     agent >> bedrock

@@ -6,23 +6,12 @@ agent. The agent has zero running compute until an event arrives: two MCP
 servers deliver events over signed webhooks, which wake a Lambda-hosted Strands
 agent just long enough to process the event and persist its state.
 
-The demo use case is multi-customer earthquake monitoring:
-
-- **MCP Server 1 — USGS Earthquake Feed** polls the USGS GeoJSON feed, detects
-  new earthquakes with cursor-based deduplication, and delivers each one as an
-  `earthquake.detected` event to every subscription whose filter (minimum
-  magnitude, region, max depth) matches.
-- **MCP Server 2 — Message Scheduler** fires a `briefing.trigger` event per
-  customer on that customer's cron schedule (or on demand).
-- A **Strands agent** wakes on each event. The agent's **conversation history is
-  the accumulator**: each earthquake becomes a user message plus an LLM analysis
-  response; each briefing trigger asks the LLM to synthesize the whole
-  conversation into a report via a `save_report` tool.
-
-Each customer has independent subscriptions, an isolated agent session, a custom
-briefing prompt, and their own reports. A SvelteKit webapp lets customers
-self-service their configuration and read their reports and conversation
-history.
+The demo use case is multi-customer earthquake monitoring. Each customer
+configures their own filters (minimum magnitude, geographic region, max depth)
+and briefing schedule. The agent accumulates earthquake observations in its
+conversation history and periodically synthesizes them into a briefing report.
+A SvelteKit webapp lets customers self-service their configuration and read
+their reports and conversation history.
 
 > This is sample/demo code intended to illustrate the MCP Events extension and a
 > wake/sleep serverless agent pattern. It is not production-hardened.
@@ -36,6 +25,23 @@ The system has three components, grouped by their MCP role:
 - **External systems** — USGS API, Amazon Bedrock
 
 <img src="diagrams/1-overview.png" alt="High-level overview" width="700">
+
+The two MCP servers (left) deliver events to the client application (right) via
+signed webhooks (solid orange arrows). The client's Subscription Manager
+maintains those subscriptions by periodically calling `events/subscribe` on each
+server (dashed blue arrows). Inside the client, events flow through a Webhook
+Receiver → SQS queue → Strands Agent pipeline, with the agent invoking Bedrock
+for LLM analysis and persisting conversation state to S3.
+
+- **MCP Server 1 — USGS Earthquake Feed** polls the USGS GeoJSON feed, detects
+  new earthquakes with cursor-based deduplication, and delivers each one as an
+  `earthquake.detected` event to every subscription whose filter matches.
+- **MCP Server 2 — Message Scheduler** fires a `briefing.trigger` event per
+  customer on that customer's cron schedule (or on demand).
+- The **Strands agent** wakes on each event. Its **conversation history is
+  the accumulator**: each earthquake becomes a user message plus an LLM analysis
+  response; each briefing trigger asks the LLM to synthesize the whole
+  conversation into a report via a `save_report` tool.
 
 ### Event delivery
 
@@ -58,14 +64,6 @@ for the briefing trigger, and a client-generated `whsec_` signing secret for
 each subscription.
 
 <img src="diagrams/3-subscriptions.png" alt="Subscription management" width="500">
-
-### How the agent processes events
-
-The agent's **conversation history is the accumulator**: each earthquake becomes
-a user message + LLM analysis response. On a briefing trigger, the LLM
-synthesizes the full conversation into a report via a `save_report` tool call.
-Each customer has an isolated session in S3, a distributed lock for write
-serialization, and their own reports.
 
 ## Getting started
 
