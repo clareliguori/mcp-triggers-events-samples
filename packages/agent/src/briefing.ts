@@ -68,7 +68,7 @@ import type {
 } from "@mcp-events/shared";
 import { briefingReportSchema } from "@mcp-events/shared";
 import {
-  NullConversationManager,
+  SlidingWindowConversationManager,
   tool,
   type Agent,
   type JSONValue,
@@ -78,6 +78,7 @@ import { z } from "zod";
 
 import {
   EARTHQUAKE_MESSAGE_PREFIX,
+  CONVERSATION_WINDOW_SIZE,
   buildAgent,
   readMetadata,
   recordProcessedEvent,
@@ -419,9 +420,11 @@ export async function processBriefingEvent(
 
   const agent = buildAgent(customerId, config.briefingPrompt, {
     tools: [makeSaveReportTool(saveReportCtx, outcome)],
-    // Retain the FULL conversation history so the LLM synthesizes every prior
-    // earthquake observation (Requirement 11.1) rather than a sliding window.
-    conversationManager: new NullConversationManager(),
+    // Use a window large enough to synthesize a meaningful report but bounded
+    // to stay within the model's 200K token context window.
+    conversationManager: new SlidingWindowConversationManager({
+      windowSize: CONVERSATION_WINDOW_SIZE,
+    }),
   });
 
   // Restore the prior session (conversation history + metadata) from S3
