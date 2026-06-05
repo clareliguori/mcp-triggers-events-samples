@@ -27,7 +27,7 @@ At a high-level, there are three major components:
   detects new earthquakes with cursor-based deduplication, and delivers each one as an
   `earthquake.detected` event to every subscription whose filter matches.
 1. **MCP Server 2 — Message Scheduler** fires a `briefing.trigger` event per
-  customer on that customer's cron schedule (or on demand).
+  customer on that customer's configured interval (or on demand).
 1. The **Strands agent** wakes on each event. Its conversation history accumulates the
   earthquake events for the customer: each earthquake becomes a user message plus an LLM analysis
   response. Each briefing trigger event asks the LLM to synthesize the whole
@@ -59,7 +59,7 @@ per-subscription secret and route the event to the right customer.
 
 The Subscription Manager is the MCP client's subscription lifecycle owner. It
 calls `events/subscribe` on both servers per customer — supplying filter
-parameters (magnitude, region, depth) for the earthquake feed, a cron schedule
+parameters (magnitude, region, depth) for the earthquake feed, an interval
 for the briefing trigger, and a client-generated `whsec_` signing secret for
 each subscription.
 
