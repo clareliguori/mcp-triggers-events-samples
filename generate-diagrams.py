@@ -38,7 +38,7 @@ with Diagram(
         s1_ddb = Dynamodb("Subscriptions")
 
     with Cluster("MCP Server 2\nMessage Scheduler"):
-        s2_eb = Eventbridge("EventBridge\n(every 1 min)")
+        s2_eb = Eventbridge("EventBridge")
         s2_lambda = Lambda("Handler")
         s2_ddb = Dynamodb("Subscriptions")
 

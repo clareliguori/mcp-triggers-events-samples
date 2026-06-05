@@ -60,7 +60,7 @@ export class SchedulerServerStack extends cdk.Stack {
       kmsKeyDescription:
         "Client-side encryption key for per-subscription webhook secrets in the Scheduler server Subscriptions table",
       kmsAlias: "alias/earthquake-agent/scheduler-subscription-secret",
-      scheduleRate: cdk.Duration.minutes(1),
+      scheduleRate: cdk.Duration.minutes(15),
       scheduleDescription:
         "Triggers MCP Server 2 to check which customers are due for a briefing every 1 minute",
       exportPrefix: "SchedulerMcp",
