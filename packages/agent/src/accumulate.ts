@@ -115,7 +115,7 @@ export const PROCESSED_EVENT_IDS_LIMIT = 200;
  * analysis and what is persisted to S3 after each event, preventing context
  * window overflow for customers with infrequent briefing schedules.
  */
-export const CONVERSATION_WINDOW_SIZE = 500;
+export const CONVERSATION_WINDOW_SIZE = 300;
 
 /**
  * Default Bedrock model id used when `BEDROCK_MODEL_ID` is not set in the
