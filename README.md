@@ -29,25 +29,43 @@ history.
 
 ## Architecture
 
-```
-USGS API ──poll──> MCP Server 1 ─┐
-                                 ├─signed webhook─> Webhook Receiver ─> SQS ─> Agent (Strands)
-              MCP Server 2 ──────┘                                              │
-                                                                                ├─> Bedrock (LLM)
-Webapp ──Cognito JWT──> Data API <──IAM SigV4── Agent ───S3 (sessions) <────────┘
-                          │                     └──────> S3 (reports, via Data API)
-Subscription Manager ──IAM──> MCP Server 1 + MCP Server 2 (events/subscribe), Data API (records)
-```
+The system has three components, colored by their MCP role:
 
-- **MCP servers** declare event types, manage per-customer webhook
-  subscriptions, and sign deliveries with Standard Webhooks HMAC-SHA256.
-- **MCP client/host** (the agent, webhook receiver, and subscription manager
-  together) subscribes to events, routes each delivery to the right customer by
-  `X-MCP-Subscription-Id`, and processes it.
-- **Webhook signing secrets are per-subscription and client-generated**: the
-  Subscription Manager generates a `whsec_` secret per subscription and supplies
-  it on `events/subscribe`. Secrets are stored client-side-encrypted with
-  per-table KMS keys (see [Security notes](#security-notes)).
+- 🟨 **MCP Servers** (orange) — declare event types, manage webhook subscriptions, deliver signed events
+- 🟦 **MCP Client/Host application** (blue) — subscribes to events, receives and processes them, manages customer state
+- ⬜ **External systems** (grey) — USGS API, Amazon Cognito, Amazon Bedrock
+
+<img src="diagrams/1-overview.png" alt="High-level overview" width="700">
+
+### Event delivery
+
+Both MCP servers run as Lambda functions on EventBridge schedules. They have
+no long-running processes — they wake, check for work, deliver webhooks, and
+exit. The agent likewise has zero running compute until a webhook arrives.
+
+
+<img src="diagrams/2-event-delivery.png" alt="Event delivery flow">
+Each delivery is a signed HTTP POST (Standard Webhooks HMAC-SHA256) with an
+`X-MCP-Subscription-Id` header that the receiver uses to look up the correct
+per-subscription secret and route the event to the right customer.
+
+### Subscription management
+
+The Subscription Manager is the MCP client's subscription lifecycle owner. It
+calls `events/subscribe` on both servers per customer — supplying filter
+parameters (magnitude, region, depth) for the earthquake feed, a cron schedule
+for the briefing trigger, and a client-generated `whsec_` signing secret for
+each subscription.
+
+<img src="diagrams/3-subscriptions.png" alt="Subscription management" width="500">
+
+### How the agent processes events
+
+The agent's **conversation history is the accumulator**: each earthquake becomes
+a user message + LLM analysis response. On a briefing trigger, the LLM
+synthesizes the full conversation into a report via a `save_report` tool call.
+Each customer has an isolated session in S3, a distributed lock for write
+serialization, and their own reports.
 
 ## Getting started
 

@@ -351,6 +351,24 @@ trust the code:
 If you change behavior that the spec describes, update the code first, then note
 the divergence (or update the spec if the task is spec-driven).
 
+## Generating diagrams
+
+Architecture diagrams in `diagrams/` are generated with the Python
+[`diagrams`](https://diagrams.mingrammer.com/) library (Graphviz-based, uses
+official AWS icons). The source is `generate-diagrams.py` at the repo root.
+
+To regenerate after editing:
+
+```bash
+uv venv /tmp/diagrams-venv && source /tmp/diagrams-venv/bin/activate
+uv pip install diagrams
+python3 generate-diagrams.py
+```
+
+This writes PNGs directly to `diagrams/`. Commit the updated PNGs alongside
+any changes to `generate-diagrams.py`. The README references the PNGs via
+`<img>` tags with `width` attributes to control sizing.
+
 ### Keeping these docs current
 
 - When you add functionality, refactor packages, or change the build/test/deploy
