@@ -72,6 +72,7 @@ export const UUID_REGEX =
  * validation ensures only these values are accepted.
  */
 export const BRIEFING_SCHEDULES = [
+  { cron: "0 */4 * * *", label: "Every 4 hours" },
   { cron: "0 */8 * * *", label: "Every 8 hours" },
   { cron: "0 */12 * * *", label: "Every 12 hours" },
   { cron: "0 9 * * *", label: "Every 24 hours" },
