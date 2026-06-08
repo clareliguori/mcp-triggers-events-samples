@@ -1,5 +1,8 @@
 .vscode/
 
+.playwright/
+.playwright-cli/
+
 # Logs
 logs
 *.log
