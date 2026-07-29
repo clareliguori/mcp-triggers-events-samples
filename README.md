@@ -4,14 +4,19 @@ A sample that demonstrates the experimental [MCP Triggers & Events extension](ht
 delivery mode, by using MCP events to wake a serverless [Strands](https://strandsagents.com)
 agent.
 
+![Screenshot of sample app home page.](/screenshots/Screenshot-Home-Page.png)
+
 This sample app provides multi-customer earthquake monitoring. Each user
 configures their own filters (minimum magnitude, geographic region, max depth)
 and briefing schedule. The agent accumulates earthquake observations in its
 conversation history and periodically synthesizes them into a briefing report
 for the user.
 
-> This is sample/demo code intended to illustrate the MCP Events extension and a
-> wake/sleep serverless agent pattern. It is not production-hardened.
+![Screenshot of agent conversation.](/screenshots/Screenshot-Agent-Conversation.png)
+
+![Screenshot of briefing reports.](/screenshots/Screenshot-Briefing-Reports.png)
+
+*This is sample/demo code intended to illustrate the MCP Events extension and a wake/sleep serverless agent pattern. It is not production-hardened.*
 
 ## Architecture
 
